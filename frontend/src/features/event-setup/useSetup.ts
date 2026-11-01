@@ -1,0 +1,5 @@
+import {useEffect,useState} from 'react';
+import {useParams} from 'react-router-dom';
+import {useApp} from '../../app/provider';
+import type {PublicationOperation,SetupState} from '../../services/publication-contracts';
+export function useSetup(){const {service,perform,busy}=useApp(),{eventId}=useParams();const [state,setState]=useState<SetupState|null>(null),[problem,setProblem]=useState('');useEffect(()=>{if(!service)return;let active=true;service.openSetup().then(s=>{if(active){if(s.event.id===eventId)setState(s);else setProblem('This route does not match the created event.')}}).catch(e=>{if(active)setProblem(e instanceof Error?e.message:String(e))});return()=>{active=false}},[service,eventId]);async function refresh(){if(service)setState(await service.readSetup())}async function act<T=unknown>(operation:PublicationOperation,input:Record<string,unknown>={}){if(!service)return;const result=await perform(()=>service.publicationCommand<T>(operation,input));if(result!==undefined)await refresh();return result}return {state,problem,act,refresh,busy,service};}

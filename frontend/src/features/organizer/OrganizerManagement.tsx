@@ -1,0 +1,22 @@
+import {useState} from 'react';
+import {useParams} from 'react-router-dom';
+import {Layout} from '../../app/layout';
+import {useProfile} from '../event-profile/useProfile';
+import {InsightsOverlay} from '../event-profile/ProfileOverlays';
+import {OrganizerLayout} from './OrganizerSidebar';
+import {EventStrip,Metrics,useOrganizer} from './OrganizerShared';
+import {OrganizerOverview} from './OrganizerOverview';
+import {OrganizerResources} from './OrganizerResources';
+import {OrganizerUpdates} from './OrganizerUpdates';
+import {OrganizerMeetings} from './OrganizerMeetings';
+import {OrganizerBlockers} from './OrganizerBlockers';
+import {OrganizerProfile} from './OrganizerProfile';
+import {OrganizerRoles} from './OrganizerRoles';
+import {OrganizerInsights} from './OrganizerInsights';
+import {ParticipantReviewPanel} from '../participation/ParticipantReviewPanel';
+import {OrganizerSponsorPanel} from '../sponsor-offers/OrganizerSponsorPanel';
+import {Link} from 'react-router-dom';
+import './organizer.css';
+const TITLES:Record<string,string>={overview:'Event Overview',participants:'Participants',roles:'Roles & Assignments',resources:'Resources',sponsors:'Sponsor Offers',updates:'Updates',meetings:'Meetings',blockers:'Blockers',profile:'Event Profile',insights:'Insights'};
+const DESCRIPTIONS:Record<string,string>={overview:'Keep your event operations connected and on track.',participants:'Review requests, approve applications and manage participant records.',roles:'Track role requirements, accepted commitments and specific work assignments.',resources:'Track required, usable, reserved and missing resources.',sponsors:'Review support offers and verify fulfillment separately.',updates:'Create internal, participant and public updates.',meetings:'Plan coordination meetings, review agendas and track human follow-ups.',blockers:'Investigate constraints and review recovery options that require human approval.',profile:'Manage the canonical public event profile, visibility and media.',insights:'Review participation, staffing, resources and verified impact.'};
+export function OrganizerManagement(){const {eventId='',section='overview'}=useParams(),{profile:p,problem,reload}=useProfile(true,section),{data:d,problem:dashboardProblem,act,busy,refresh}=useOrganizer(eventId,reload,section),[insights,setInsights]=useState(false);if(!p)return <Layout><main className="page"><h1>{problem?'Event management unavailable':'Loading event management…'}</h1><p role={problem?'alert':'status'}>{problem||'Checking event-scoped organizer permission.'}</p></main></Layout>;if(!p.viewer.is_organizer)return <Layout><main className="page card"><h1>Organizer access required</h1><p>This account does not have organizer permission for this event.</p><Link to={`/events/${p.event.id}`}>Return to Event Profile</Link></main></Layout>;return <Layout><OrganizerLayout eventId={p.event.id}><div className="od-dashboard"><header className="management-heading"><div><h1>{TITLES[section]??'Management page unavailable'}</h1><p>{DESCRIPTIONS[section]}</p></div></header><EventStrip p={p}/>{!d?<p role={dashboardProblem?'alert':'status'}>{dashboardProblem||'Loading connected organizer records…'}</p>:section==='overview'?<OrganizerOverview p={p} d={d} act={act} busy={busy} onInsights={()=>setInsights(true)}/>:section==='participants'?<><Metrics items={[{label:'Requests submitted',value:p.insights.counts?.requested??0,icon:'file'},{label:'Human-approved applicants',value:p.insights.counts?.approved??0,icon:'people'},{label:'Accepted participants',value:p.insights.counts?.accepted??0,icon:'accepted'}]}/><ParticipantReviewPanel eventId={p.event.id} onChanged={reload}/></>:section==='roles'?<OrganizerRoles p={p}/>:section==='resources'?<OrganizerResources d={d} act={act} busy={busy}/>:section==='sponsors'?<OrganizerSponsorPanel eventId={p.event.id}/>:section==='updates'?<OrganizerUpdates d={d} act={act} busy={busy}/>:section==='meetings'?<OrganizerMeetings d={d} act={act} busy={busy}/>:section==='blockers'?<OrganizerBlockers d={d} act={act} busy={busy}/>:section==='profile'?<OrganizerProfile p={p} d={d} act={act} busy={busy} onRefresh={async()=>{await refresh();await reload()}}/>:section==='insights'?<OrganizerInsights p={p} d={d} onInsights={()=>setInsights(true)}/>:<p>Unknown management section.</p>}</div>{insights&&<InsightsOverlay profile={p} onClose={()=>setInsights(false)}/>}</OrganizerLayout></Layout>}

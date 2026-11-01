@@ -1,0 +1,36 @@
+# Environment files (including local templates)
+.env
+.env.*
+*.env
+
+# Local demo code, tests and datasets
+/demo/
+**/fixtures/*.json
+
+# Dependencies, builds and caches
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+.venv/
+venv/
+.tmp/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+htmlcov/
+coverage/
+
+# Local verification artifacts and development scratch files
+/outputs/
+/work/
+*.log
+
+# Editor and operating-system files
+.idea/
+.DS_Store
+Thumbs.db

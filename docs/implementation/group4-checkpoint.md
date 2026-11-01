@@ -1,0 +1,3 @@
+# Group 4 final checkpoint
+
+Core implementation and verification complete for documented scope. Read group4-implementation-report.md and outputs/backend-group4/verification.json before further work. Full backend128 passed on real isolated PostgreSQL; final Group4 recheck20 passed after final narrow operational corrections. Full frontend72 passed; focused10 passed; unchanged demo146 passed; TypeScript/build/compileall/pip check passed. Source hashes and OpenAPI saved. No configured application DB migration/connectivity (placeholder credentials), storage directory remains unset, no browser verification or live AI/network inference, no Group5. Stop for user review; no ongoing tool sessions or feature work required.

@@ -1,0 +1,4 @@
+import {useEffect,useState} from 'react';
+import {useApp} from '../../app/provider';
+import type {SponsorPortal,SponsorOperation} from '../../services/sponsor-contracts';
+export function useSponsor(){const {service,identity,perform,busy}=useApp();const [portal,setPortal]=useState<SponsorPortal|null>(null),[problem,setProblem]=useState('');useEffect(()=>{let live=true;setPortal(null);setProblem('');service?.sponsorPortal().then(p=>{if(live)setPortal(p)}).catch(e=>{if(live)setProblem(e.message)});return()=>{live=false}},[service,identity?.accountId]);async function refresh(){if(service)setPortal(await service.sponsorPortal())}async function act<T=unknown>(op:SponsorOperation,input:Record<string,unknown>={}){if(!service)return;const result=await perform(()=>service.sponsorCommand<T>(op,input));if(result!==undefined)await refresh();return result}return {portal,problem,act,busy,refresh};}
