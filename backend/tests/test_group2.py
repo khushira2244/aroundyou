@@ -112,7 +112,7 @@ def test_groups_zones_resources_are_scoped_demand_only(flow):
     flow.call('/planning/items/work/'+work,{'work_group_id':group,'zone_ids':[zone],'resource_requirement_ids':[resource]},method='PATCH')
     flow.confirm('work');flow.call('/planning/actor-derivations',{});flow.confirm('actor');flow.call('/setup/draft',{})
     flow.call('/setup/sections/resources',{'data':{'claims':{resource:10}}},method='PATCH')
-    r=flow.get('/setup').json()['data']['resources'][0];assert r['required']==2 and r['reported_available']==10 and r['available'] is None and r['delivered']==0 and r['reserved']==0
+    r=flow.get('/setup').json()['data']['resources'][0];assert r['required']==2 and r['reported_available']==10 and r['available']==0 and r['delivered']==0 and r['reserved']==0
 
 def test_pending_manual_proposal_reject_and_stale_apply(flow):
     flow.new();flow.create();stage,work=flow.basic_plan()
@@ -128,13 +128,20 @@ def test_approved_manual_diff_and_immutable_plans(flow,factory):
     flow.new();flow.create();stage,work=flow.basic_plan();old_plan=flow.planning()['active_plan_id']
     p=flow.call('/planning/stage-edits',{'stage_id':stage,'start_day':2,'duration_days':3})['proposal']
     flow.call('/planning/proposals/'+p['id']+'/apply',{'reviewed_digest':p['digest']})
-    assert flow.planning()['planning']['work'][work]['schedule']['start_day']==2
+    # Prompt 3 V1: stage changes flag work timing for review, never move work implicitly.
+    assert flow.planning()['planning']['work'][work]['schedule']['start_day']==1
+    assert flow.planning()['planning']['stale_work_ids']==[work]
     assert not flow.planning()['planning']['stage_confirmed']
     flow.confirm('stage')
     with factory() as db:assert db.get(PlanVersion,old_plan).content['stages'][0]['relative_start']==1
 
-def test_governance_is_authorized_internal_and_nonblocking(flow,headers):
+def test_governance_is_authorized_internal_and_nonblocking(flow,headers,app,factory):
     flow.new();flow.create();flow.call('/planning/draft',{})
+    app.state.planning_adapter=FakeMuse()
+    flow.call('/governance/assessments',{},expected=202)
+    assert work_ai_once(factory,app.state.planning_adapter)
+    proposal=flow.get('/governance').json()['data']['proposals'][0]
+    flow.call('/governance/proposals/'+proposal['id']+'/review',{'decision':'accept','reviewed_digest':proposal['digest']})
     ticket=flow.call('/governance/tickets',{})['ticket']
     flow.call('/governance/tickets/'+ticket['id']+'/documents',{'name':'Safety notes.pdf','document_type':'safety','document_reference':'Organizer retained original','size':100,'mime':'application/pdf'})
     flow.call('/governance/tickets/'+ticket['id']+'/reminders',{'email_updates':True,'remind_documents':True},method='PATCH')
@@ -325,3 +332,30 @@ def test_reviewed_work_edit_preserves_parent_stage_confirmation(flow):
     p=flow.call('/planning/work-edits',{'work_id':work,'patch':{'title':'Revised reading practice'}})['proposal']
     flow.call('/planning/proposals/'+p['id']+'/apply',{'reviewed_digest':p['digest']})
     result=flow.planning()['planning'];assert result['stage_confirmed'] and not result['work_confirmed'] and not result['actors_confirmed'];assert result['work'][work]['revision']==2
+
+
+def test_my_events_exact_resume_preserves_event_and_plan(flow,app,factory):
+    flow.new()
+    event_id=flow.id
+    flow.call('/draft',{'step':2,'form':FORM},method='PATCH')
+    def resume():
+        rows=flow.client.get('/v1/me/events',headers=flow.headers()).json()['data']
+        rows=rows.get('items',rows) if isinstance(rows,dict) else rows
+        return next(row['resume_path'] for row in rows if row['event']['id']==event_id)
+    assert resume()==f'/events/{event_id}/create/2'
+    flow.call('/draft',{'step':4,'form':FORM},method='PATCH')
+    flow.create()
+    flow.call('/planning/draft',{})
+    version=flow.get('').json()['data']['version']
+    for step in ['governance','planning','actors','setup']:
+        response=flow.client.put('/v1/events/'+event_id+'/workflow-progress',json={'step':step},headers=flow.headers())
+        assert response.status_code==200,response.text
+        assert resume()==f'/events/{event_id}/{step}'
+        assert flow.get('').json()['data']['version']==version
+    created=flow.call('/planning/items/stages',{'title':'Saved stage'},expected=201)
+    stage_id=next(iter(flow.planning()['planning']['stages']))
+    response=flow.client.put('/v1/events/'+event_id+'/workflow-progress',json={'step':'work','stage_id':stage_id},headers=flow.headers())
+    assert response.status_code==200,response.text
+    assert resume()==f'/events/{event_id}/work/{stage_id}'
+    assert flow.get('/creation').json()['data']['event']['id']==event_id
+

@@ -17,7 +17,13 @@ def create(db,actor,e,b):
 def get(db,actor,e,aid):
     a=db.get(EvidenceAsset,aid)
     if not a or a.event_id!=e.id:missing()
-    get_report(db,actor,e,a.report_id);return a
+    try:get_report(db,actor,e,a.report_id)
+    except DomainError:
+        # Explicit issue attachment authorizes the organizer to read that exact original,
+        # not the participant's unsubmitted report or its other draft attachments.
+        from app.execution.models import WorkIssue
+        if not owner(db,actor,e) or not db.scalar(select(WorkIssue.id).where(WorkIssue.event_id==e.id,WorkIssue.content['evidence_ids'].contains([aid]))):raise
+    return a
 def dto(a):return {'id':a.id,'report_id':a.report_id,'revision':a.version,**{k:v for k,v in a.content.items() if k!='storage_key'},'last_modified':0,'storage':'private_backend','media_reference':'/v1/events/'+a.event_id+'/evidence/'+a.id+'/content'}
 def upload(db,actor,e,aid,data,storage):
     a=get(db,actor,e,aid);r=get_report(db,actor,e,a.report_id);_,t=assignment(db,actor,e,r.work_id)

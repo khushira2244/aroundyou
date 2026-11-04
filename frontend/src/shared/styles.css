@@ -7,7 +7,8 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
 /* The approved screenshot supplies illustration only; hide its embedded form. */
-.signup-landscape img{clip-path:inset(0 50% 0 0)}
+/* Crop out the reference image's embedded benefit text as well as its form. */
+.signup-landscape img{clip-path:inset(72% 50% 0 0)}
 .discovery-location-summary{font-size:12px;text-align:center;color:#698275;margin:-8px 0 18px}.event-card .event-location{display:flex;align-items:flex-start;gap:6px;color:#557765;font-size:12px;line-height:1.6;margin:12px 0 6px}.map-initiative-list{position:absolute;left:17px;top:70px;bottom:45px;width:250px;background:#fffffff2;border:1px solid #e0e9e2;border-radius:12px;overflow:auto;padding:12px;box-shadow:0 3px 15px #16382d0d}.map-initiative-list>strong{display:block;font-size:12px;margin:3px 5px 8px;color:#4a705b}.map-initiative-list>button{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:7px;padding:9px 7px;font-size:11px;line-height:1.5;color:#3d6250}.map-initiative-list>button:hover{background:#eaf8ef}.map-initiative-list>button>small{display:block;font-size:9px;color:#829388}.map-marker{left:60%}@media(max-width:760px){.map-initiative-list{width:145px;left:8px;top:55px;padding:7px}.map-initiative-list>button{font-size:10px;padding:7px 4px}.map-initiative-list>strong{font-size:10px}.map-marker{left:68%;max-width:125px}.map-marker>span{font-size:10px}.map-place{left:54%;top:24%;font-size:8px}.discovery-location-summary{font-size:11px}}
 
 /* Every initiative has a category marker in this explicitly schematic demo. */

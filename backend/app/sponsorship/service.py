@@ -16,6 +16,14 @@ def member(session,actor,organization_id):
     return session.get(Organization,organization_id)
 
 def save_organization(session,actor,body):
+    from app.access.accounts import Credential
+    credential=session.get(Credential,actor)
+    if credential and credential.account_kind!='sponsor':
+        raise DomainError('forbidden','Organization registration requires a sponsor account',403)
+    if not body.organization_id:
+        session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key,0))'),{'key':'organization-owner:'+actor})
+        if session.scalar(select(OrganizationMembership).where(OrganizationMembership.account_id==actor)):
+            raise DomainError('organization_exists','Reload your existing organization rather than creating a duplicate',409)
     if body.organization_id:session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key,0))'),{'key':'organization:'+body.organization_id})
     org=member(session,actor,body.organization_id) if body.organization_id else None
     if org and org.version!=body.expected_version:raise DomainError('stale_version','Reload organization profile version')
@@ -66,6 +74,7 @@ def transition(session,actor,event,row,action):
 
 def report(session,actor,event,row,body):
     require_state(row.status=='accepted','Only accepted support can be reported')
+    if session.scalar(select(SupportFulfillment.id).where(SupportFulfillment.offer_id==row.id,SupportFulfillment.reference==body.reference)):raise DomainError('duplicate_delivery','Delivery reference already reported for this offer',409)
     reported=sum((D(x.quantity) for x in session.scalars(select(SupportFulfillment).where(SupportFulfillment.offer_id==row.id))),D(0))
     require_state(reported+body.quantity<=D(row.content['quantity']),'Report exceeds accepted amount')
     f=SupportFulfillment(id=uid(),event_id=event.id,offer_id=row.id,quantity=body.quantity,reference=body.reference,evidence_reference=body.evidence_reference,created_by=actor);session.add(f);session.flush();event.version+=1
@@ -80,3 +89,19 @@ def offer_dto(session,row):
     resource=find_resource(session,event,row.content['resource_id'],row.account_id)
     status='completed' if credited>=D(row.content['quantity']) else 'partially_fulfilled' if credited else 'delivered_unverified' if reported else 'submitted' if row.status=='pledged' else row.status
     return {'id':row.id,'event_id':row.event_id,'organization_id':row.organization_id or '',**row.content,'resource_requirement_id':row.content['resource_id'],'representative_account_id':row.account_id,'quantity':float(row.content['quantity']),'estimated_value':float(row.content['estimated_value']) if row.content.get('estimated_value') is not None else None,'organization_label':org.profile.get('name','') if org else 'Individual supporter','event_title':event.title,'requirement_title':resource['title'],'status':row.status,'version':row.version,'verified':float(credited),'reported':float(reported),'fulfillment_status':status}
+
+
+def request_revision(session,actor,event,offer_id,body):
+    row=session.get(SupportOffer,offer_id)
+    if not row or row.event_id!=event.id:missing()
+    require_state(row.status=='pledged','Only proposed offers can receive revision requests')
+    row.content={**row.content,'revision_request':{'body':body,'status':'requested'}};row.version+=1;event.version+=1
+    session.add(SupportOfferRevision(event_id=event.id,offer_id=row.id,version=row.version,content={'terms':row.content,'status':row.status,'plan_id':row.plan_id},created_by=actor))
+    source(session,actor,event,row.id,'support.clarification',{'offer_id':row.id,'version':row.version,'question':body,'notice':'No external message or commitment created'})
+    return {'offer':offer_dto(session,row)}
+
+def fulfillment_credit(session,f):
+    from app.resources.models import ResourceTransaction
+    receipt=session.scalar(select(ResourceTransaction).where(ResourceTransaction.fulfillment_id==f.id,ResourceTransaction.kind=='receipt'))
+    if not receipt:return False
+    return not bool(session.scalar(select(ResourceTransaction.id).where(ResourceTransaction.reverses_id==receipt.id)))

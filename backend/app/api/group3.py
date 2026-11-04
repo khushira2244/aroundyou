@@ -1,5 +1,5 @@
 from copy import deepcopy
-from fastapi import APIRouter,Header,Depends,Request,Query
+from fastapi import APIRouter,Header,Depends,Request,Query,BackgroundTasks
 from pydantic import Field
 from sqlalchemy import select
 from app.api.group2 import USER,DB,ok
@@ -23,6 +23,11 @@ class OrganizationAction(StrictModel):organization_id:str
 class AdvisoryRequest(StrictModel):
     application_id:str|None=None
     message:str=Field(default='',max_length=2000)
+
+@router.post('/events/{event_id}/applications/{application_id}/role-suggestions')
+def applicant_role_suggestions(event_id:str,application_id:str,body:Empty,request:Request,user=USER,db=DB,if_match:str=Header(),idempotency_key:str=Header()):
+    from app.participation.role_suggestions import suggest
+    return write(db,user,event_id,'participation.role_suggestions:'+application_id,idempotency_key,if_match,{},lambda e:suggest(db,user.id,e,application_id,request.app.state.planning_adapter))
 
 
 def write(db,user,eid,operation,key,version,payload,action,organizer=False):
@@ -118,6 +123,12 @@ def support_draft(event_id:str,body:SupportDraft,user=USER,db=DB,if_match:str=He
 @router.post('/events/{event_id}/sponsor-offers/{offer_id}/fulfillments')
 def support_report(event_id:str,offer_id:str,body:Fulfillment,user=USER,db=DB,if_match:str=Header(),idempotency_key:str=Header()):
     return write(db,user,event_id,'support.report:'+offer_id,idempotency_key,if_match,body.model_dump(mode='json'),lambda e:ss.report(db,user.id,e,ss.own_offer(db,user.id,e,offer_id),body))
+class SponsorRevision(StrictModel):
+    body:str=Field(min_length=1,max_length=2000)
+@router.post('/events/{event_id}/sponsor-offers/{offer_id}/revision-requests')
+def sponsor_revision(event_id:str,offer_id:str,body:SponsorRevision,user=USER,db=DB,if_match:str=Header(),idempotency_key:str=Header()):
+    return write(db,user,event_id,'support.revision:'+offer_id,idempotency_key,if_match,body.model_dump(),lambda e:ss.request_revision(db,user.id,e,offer_id,body.body),True)
+
 @router.post('/events/{event_id}/sponsor-offers/{offer_id}/{action}')
 def support_transition(event_id:str,offer_id:str,action:str,body:Empty,user=USER,db=DB,if_match:str=Header(),idempotency_key:str=Header()):
     if action not in ('submit','accept','reject','withdraw'):raise DomainError('invalid_action','Unknown support action',422)
@@ -127,7 +138,7 @@ def support_transition(event_id:str,offer_id:str,action:str,body:Empty,user=USER
 def organizer_support(event_id:str,user=USER,db=DB):
     e=require(db,user.id,event_id,'plan:write');require(db,user.id,event_id,'source:private');needs=next((o['needs'] for o in sp.opportunities(db,user.id) if o['id']==e.id),[])
     from app.resources.models import ResourceTransaction
-    reports=[{'id':f.id,'offer_id':f.offer_id,'quantity':float(f.quantity),'reference':f.reference,'verified':bool(db.scalar(select(ResourceTransaction.id).where(ResourceTransaction.fulfillment_id==f.id)))} for f in db.scalars(select(SupportFulfillment).where(SupportFulfillment.event_id==e.id))]
+    reports=[{'id':f.id,'offer_id':f.offer_id,'quantity':float(f.quantity),'reference':f.reference,'verified':ss.fulfillment_credit(db,f)} for f in db.scalars(select(SupportFulfillment).where(SupportFulfillment.event_id==e.id))]
     return ok({'event_id':e.id,'fulfillments':reports,'offers':[ss.offer_dto(db,o) for o in db.scalars(select(SupportOffer).where(SupportOffer.event_id==e.id,SupportOffer.status!='draft'))],'needs':needs},e)
 @router.get('/events/{event_id}/resources')
 def resources(event_id:str,user=USER,db=DB):
@@ -147,10 +158,14 @@ def release_reservation(event_id:str,reservation_id:str,body:Empty,user=USER,db=
 
 @router.post('/events/{event_id}/participation-assessments',status_code=202)
 @router.post('/events/{event_id}/resource-assessments',status_code=202)
-def advisory(event_id:str,body:AdvisoryRequest,request:Request,user=USER,db=DB,if_match:str=Header(),idempotency_key:str=Header()):
+def advisory(event_id:str,body:AdvisoryRequest,request:Request,background_tasks:BackgroundTasks,user=USER,db=DB,if_match:str=Header(),idempotency_key:str=Header()):
     from app.ai.service import request_run
     kind='resources' if '/resource-assessments' in request.url.path else 'participation'
-    return write(db,user,event_id,'ai.'+kind,idempotency_key,if_match,body.model_dump(),lambda e:request_run(db,user.id,e,kind,body.message,request.app.state.planning_adapter,body.application_id),True)
+    result=write(db,user,event_id,'ai.'+kind,idempotency_key,if_match,body.model_dump(),lambda e:request_run(db,user.id,e,kind,body.message,request.app.state.planning_adapter,body.application_id),True)
+    if kind=='participation' and getattr(request.app.state.planning_adapter,'live_provider',False):
+        from app.ai.service import work_ai_once
+        background_tasks.add_task(work_ai_once,request.app.state.session_factory,request.app.state.planning_adapter,run_id=result['data']['run_id'])
+    return result
 class AdvisoryReview(StrictModel):
     decision:str
     reviewed_digest:str
@@ -234,7 +249,11 @@ def organization_report(organization_id:str,offer_id:str,body:Fulfillment,user=U
 def dashboard(event_id:str,user=USER,db=DB):
     from app.shared.models import AuditEvent
     from app.participation.models import OperationalSource
-    e=require(db,user.id,event_id,'plan:write');require(db,user.id,e.id,'source:private');people=pp.organizer_participants(db,user.id,e)
+    e=require(db,user.id,event_id,'plan:write');require(db,user.id,e.id,'source:private')
+    if not e.current_publication_id:
+        from app.events.dto import event_dto
+        return ok({'runtime_mode':'http','current_actor_id':user.id,'event':event_dto(e),'revision':e.version,'active_plan_id':e.active_plan_id,'candidate_plan_id':None,'resources':[],'notes':[],'resource_requests':[],'updates':[],'meetings':[],'actions':[],'accounts':[],'blockers':[],'alternatives':[],'blocker_scenario':None,'audit':[{'id':a.id,'operation':a.operation,'sequence':i+1} for i,a in enumerate(db.scalars(select(AuditEvent).where(AuditEvent.event_id==e.id).order_by(AuditEvent.created_at)))],'profile_settings':{},'investigation':None,'candidate':None,'unavailable_modules':['publication_required']},e)
+    people=pp.organizer_participants(db,user.id,e)
     from app.execution.projections import communications,state
     com=communications(db,user.id,e);ex=state(db,user.id,e)
     requests=[{'id':r.aggregate_id,**r.content,'status':'open'} for r in db.scalars(select(OperationalSource).where(OperationalSource.event_id==e.id,OperationalSource.kind=='resource.request'))]

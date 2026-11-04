@@ -78,8 +78,12 @@ def correct_receipt(session,actor,event,receipt_id,reason):
     return {'correction_id':correction.id}
 
 def projection(session,event,actor=None):
+    return project_requirements(session,event,requirements(session,event,actor))
+
+def project_requirements(session,event,resources):
+    """Use the same ledger for unpublished setup and published operations."""
     result=[]
-    for r in requirements(session,event,actor):
+    for r in resources:
         received,reserved,transactions=totals(session,event,r['id'])
         offers=list(session.scalars(select(SupportOffer).where(SupportOffer.event_id==event.id)))
         matching=[o for o in offers if o.content['resource_id']==r['id']]

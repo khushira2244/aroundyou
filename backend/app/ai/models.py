@@ -30,3 +30,4 @@ class AIProposal(Base):
     digest: Mapped[str]=mapped_column(String(64))
     provenance: Mapped[dict]=mapped_column(JSONB)
     review_decision_id: Mapped[str|None]=mapped_column(ForeignKey('review_decisions.id'))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)

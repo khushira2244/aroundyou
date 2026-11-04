@@ -3,6 +3,17 @@ import {HttpAdapter} from '../src/services/http-adapter';
 import {DEFAULT_FORM} from '../src/features/event-creation/model';
 const response=(data:unknown,version?:number)=>new Response(JSON.stringify({data,meta:version===undefined?{}:{version}}),{status:200,headers:{'Content-Type':'application/json'}});
 afterEach(()=>vi.unstubAllGlobals());
+it('confirms all actor candidates with one digest-bound HTTP request',async()=>{
+ const requests:{path:string;body:Record<string,unknown>}[]=[];
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit)=>{
+  const path=new URL(url).pathname;
+  if(init.method==='GET')return response({event:{id:'e'},draft_version:7,proposals:[{id:'p1',kind:'actors',status:'pending',digest:'a'.repeat(64)},{id:'p2',kind:'actors',status:'pending',digest:'b'.repeat(64)}]},10);
+  requests.push({path,body:JSON.parse(String(init.body))});return response({actors_confirmed:true},11);
+ }));
+ const service=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=> 't',eventId:()=> 'e'});
+ await service.readPlanning();await service.planningCommand('confirmActorRequirements',{proposalIds:['p1','p2']});
+ expect(requests).toEqual([{path:'/v1/events/e/planning/actor-confirmations',body:{expected_draft_version:7,actor_proposals:[{proposal_id:'p1',reviewed_digest:'a'.repeat(64)},{proposal_id:'p2',reviewed_digest:'b'.repeat(64)}]}}]);
+});
 it('uses bearer identity and event-scoped server draft persistence, never fixture identity',async()=>{
  const requests:{path:string;init:RequestInit}[]=[];let version=1;let title='';
  vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit)=>{const path=new URL(url).pathname;requests.push({path,init});if(path.endsWith('/me'))return response({user:{id:'real-user',display_name:'Organizer'}});if(path.endsWith('/draft')){title=JSON.parse(init.body as string).form.title;version++;}return response({event:{id:'server-event',title},context:{original_text:''},runtime:{revision:version,lifecycle:'draft',draft:{creation_details:{title}},wizard_step:1}},version)}));
@@ -20,12 +31,12 @@ it('binds calls to route event and never falls back to demo on an HTTP failure',
  const service=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=> 't',eventId:()=>id});await service.readSetup();id='event-b';
  // Use setup read to avoid fake PlanningState projection in this transport-only test.
  await service.readSetup();expect(paths.at(-1)).toContain('/events/event-b/setup');
- vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({error:{code:'stale_version',message:'Reload exact version'}}),{status:409})));
+ vi.stubGlobal('fetch',vi.fn(async(_url:string,_init:RequestInit)=>new Response(JSON.stringify({error:{code:'stale_version',message:'Reload exact version'}}),{status:409})));
  await expect(service.readSetup()).rejects.toMatchObject({status:'stale_version'});
 });
-it('does not submit fixture transcripts or request without a token',async()=>{
- const fetchMock=vi.fn();vi.stubGlobal('fetch',fetchMock);
- const service=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=>null});await expect(service.initialize()).rejects.toMatchObject({status:'unauthenticated'});expect(fetchMock).not.toHaveBeenCalled();
+it('uses the browser session without a bearer and rejects fixture transcripts',async()=>{
+ const fetchMock=vi.fn(async(_url:string,_init:RequestInit)=>new Response(JSON.stringify({error:{code:'unauthenticated',message:'Sign in'}}),{status:401}));vi.stubGlobal('fetch',fetchMock);
+ const service=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=>null});await expect(service.initialize()).rejects.toMatchObject({status:'unauthenticated'});expect(fetchMock).toHaveBeenCalledOnce();expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({credentials:'include'});
  await expect(service.saveIntent('canned','reviewed_demo_transcript')).rejects.toMatchObject({status:'invalid_source'});await expect(service.sampleTranscript()).rejects.toThrow(/not connected/);
 });
 it('serializes writes so the second request uses the committed event version',async()=>{
@@ -44,4 +55,54 @@ it('persists structured clarifications, manual confirmation and governance revie
  expect(requests.find(r=>r.path.endsWith('/context-clarifications'))?.body).toEqual({context_version:2,answers:[{question:'Which venue?',answer:'Library'}]});
  expect(requests.at(-1)).toMatchObject({path:'/v1/events/e/governance/tickets/t',method:'PATCH',body:{status:'closed'}});
  expect(requests.some(r=>r.path.endsWith('/governance/proposals/p/review'))).toBe(true);
+});
+
+it('resumes an existing created event and coalesces concurrent draft starts',async()=>{
+ const calls:string[]=[];
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+   calls.push(url);
+   return response({event:{id:'saved-event'},runtime:{revision:7,lifecycle:'created_unpublished',draft:{creation_details:{title:'Saved title'}}}});
+ }));
+ const service=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=>null,eventId:()=>null});
+ service.selectEvent('saved-event');
+ const states=await Promise.all([service.startCreation(),service.startCreation()]);
+ expect(states.map(state=>state.event.id)).toEqual(['saved-event','saved-event']);
+ expect(calls).toHaveLength(1);
+ expect(calls[0]).toContain('/events/saved-event/creation');
+ expect(calls.some(url=>url.endsWith('/events/drafts'))).toBe(false);
+});
+it('saves exact workflow stage without changing the selected event',async()=>{
+ const fetchMock=vi.fn(async()=>response({saved:true}));
+ vi.stubGlobal('fetch',fetchMock);
+ const service=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=>null,eventId:()=> 'event-a'});
+ await service.saveWorkflowProgress('work','S2');
+ expect(fetchMock.mock.calls[0]).toBeDefined();
+ const call=(fetchMock.mock.calls as unknown as [string,RequestInit][])[0];
+ expect(call[0]).toContain('/events/event-a/workflow-progress');
+ expect(JSON.parse(String(call[1].body))).toEqual({step:'work',stage_id:'S2'});
+});
+
+it('replaces a legacy unpublished management link with saved Work Design progress',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+   if(url.endsWith('/me/events'))return response({items:[{
+     event:{id:'event-a',lifecycle:'created_unpublished'},organizer:true,
+     resume_path:'/events/event-a/manage/overview',
+   }]});
+   if(url.endsWith('/events/event-a/planning'))return response({planning:{
+     stage_confirmed:true,work_confirmed:false,actors_confirmed:false,
+     stages:{S1:{},S2:{}},work_confirmed_stage_ids:['S1'],
+   }});
+   throw new Error('Unexpected request '+url);
+ }));
+ const service=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=>null});
+ expect((await service.myEvents())[0].resume_path).toBe('/events/event-a/work/S2');
+});
+it('preserves the exact saved planning route and published management route',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async()=>response({items:[
+   {event:{id:'event-a',lifecycle:'created_unpublished'},organizer:true,resume_path:'/events/event-a/work/S3'},
+   {event:{id:'event-b',lifecycle:'published'},organizer:true,resume_path:'/events/event-b/manage/overview'},
+ ]})));
+ const service=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=>null});
+ expect((await service.myEvents()).map(row=>row.resume_path)).toEqual(['/events/event-a/work/S3','/events/event-b/manage/overview']);
+ expect(fetch).toHaveBeenCalledOnce();
 });

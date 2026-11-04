@@ -25,6 +25,7 @@ class Event(Base):
     current_publication_id: Mapped[str | None] = mapped_column(String(36))
     title: Mapped[str] = mapped_column(String(200))
     category: Mapped[str] = mapped_column(String(80))
+    memory_data_class: Mapped[str] = mapped_column(String(20),default='unclassified')
     version: Mapped[int] = mapped_column(Integer, default=1)
     active_context_revision_id: Mapped[str | None] = mapped_column(String(36))
     active_plan_id: Mapped[str | None] = mapped_column(String(36))

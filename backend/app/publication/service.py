@@ -35,7 +35,7 @@ def open_setup(session,actor,event):
     if event.current_setup_id:
         old=session.get(SetupRevision,event.current_setup_id)
         if old.source_plan_id==event.active_plan_id:return old
-    return save_revision(session,actor,event,default_configuration(event,session.get(PlanVersion,event.active_plan_id)))
+    return save_revision(session,actor,event,default_configuration(event,session.get(PlanVersion,event.active_plan_id) if event.active_plan_id else None))
 
 def save_section(session,actor,event,section,data):
     old=setup_for(session,event);c=deepcopy(old.configuration)
@@ -89,7 +89,8 @@ def preferences(session,actor,event,body):
 
 def setup_dto(session,event):
     draft=draft_for(session,event);setup=setup_for(session,event);c={**setup.configuration,'revision':setup.sequence}
-    resources=[{'id':r['id'],'title':r['title'],'kind':r['kind'],'unit':r['unit'],'required':r['quantity'],'available':None,'pledged':0,'accepted':0,'delivered':0,'reserved':0,'gap':None,'reported_available':c['availability_claims'].get(r['id'],{}).get('quantity'),'status':'not_verified'} for r in draft.content['resources']]
+    from app.resources.service import project_requirements
+    resources=[{**r,'delivered':r['verified'],'reported_available':c['availability_claims'].get(r['id'],{}).get('quantity'),'status':'verified_receipts_only'} for r in project_requirements(session,event,draft.content['resources'])]
     final=session.get(Finalization,event.current_finalization_id) if event.current_finalization_id else None
     checks=[{'id':'plan','label':'Coherent plan confirmed','done':bool(draft.stage_confirmed and draft.work_confirmed and draft.actors_confirmed),'required':True},{'id':'participation','label':'Participation and visibility reviewed','done':c['participation_configured'],'required':True},{'id':'resources','label':'Resource availability reviewed','done':c['resource_reviewed'],'required':False},{'id':'invites','label':'Invitation drafts reviewed (not sent)','done':c['invites_reviewed'],'required':False},{'id':'sponsors','label':'Sponsor discussions reviewed','done':c['sponsors_reviewed'],'required':False},{'id':'tags','label':'Optional tags reviewed','done':c['tags_reviewed'],'required':False}]
     planning_view=progress(draft)
@@ -124,11 +125,14 @@ def publish(session,actor,event,finalization_id):
     return {'publication_id':release.id,'publication':'published','visibility':release.visibility,'plan_id':plan.id}
 
 def profile(session,event,user_id=None,preview=False):
+    if event.lifecycle=='deleted':missing()
     owner=bool(user_id and allowed(session,user_id,event.id,'event:read') and allowed(session,user_id,event.id,'plan:write'))
     if preview:
         if not owner:missing()
-        draft=draft_for(session,event);configuration=setup_for(session,event).configuration if event.current_setup_id else default_configuration(event,session.get(PlanVersion,event.active_plan_id))
-        snap={'event':event_dto(event),'plan':draft.content,'configuration':configuration};plan_id=event.active_plan_id;visibility=configuration['participation']['visibility'];publication='preview'
+        from app.planning.draft_models import PlanningDraft
+        from app.planning.schemas import PlanContent
+        draft=session.scalar(select(PlanningDraft).where(PlanningDraft.event_id==event.id));configuration=setup_for(session,event).configuration if event.current_setup_id else default_configuration(event,session.get(PlanVersion,event.active_plan_id) if event.active_plan_id else None)
+        snap={'event':event_dto(event),'plan':draft.content if draft else PlanContent().model_dump(),'configuration':configuration};plan_id=event.active_plan_id;visibility=configuration['participation']['visibility'];publication='preview'
     else:
         release=session.get(Publication,event.current_publication_id) if event.current_publication_id else None
         if not release:missing()
@@ -140,8 +144,10 @@ def profile(session,event,user_id=None,preview=False):
     roles=[]
     if c['participation']['show_open_roles']:
         for r in body['roles']:roles.append({**r,'commitment':{'effort_person_hours':r['effort_person_hours'],'schedule_intervals':r['schedule_intervals']},'delegated_permissions':[],'status':'planned_requirement','positions':r['proposed_headcount'],'accepted_positions':0,'open_positions':r['proposed_headcount'],'published_plan_id':plan_id,'recruitment_status':'planned'})
+    from app.access.models import User
+    creator=session.get(User,event.creator_id)
     public_event={**snap['event'],'context_id':None,'lifecycle':'published' if not preview else event.lifecycle}
-    result={'event':public_event,'tabs':TABS,'publication':publication,'visibility':visibility,'plan_id':plan_id,'viewer':{'is_organizer':owner,'can_edit_content':False,'can_discuss':False,'following':False},'organizer':{'label':'Event organizer','verified':False},'scope':{'work_scope':snap['event']['goal'],'zones':[z['label'] for z in body['zones'] if z['in_scope']],'exclusions':c['scope_exclusions']},'stages':[{**s,'capacity':{'confirmed_people':0,'feasibility':'unverified'},'responsible_role_requirement_id':'','execution_status':'planned','work_count':sum(w['stage_id']==s['id'] for w in body['work'])} for s in body['stages']],'roles':roles,'updates':[],'photos':[],'sponsors':[],'discussions':[],'impact':{'verified_outputs':[],'reported_activity_count':0,'accepted_participants':0,'waste_collected_kg':None,'waste_handed_over_kg':None,'area_improved_hectares':None,'cleanup_zones_completed':None,'assessment_sections':None,'cleanup_complete':False},'communications':communications,'participation':c['participation'],'insights':{'enabled':c['tags']['collect_insights'],'status':'suppressed','reason':'No consented accepted participant records in this group','total_participants':0,'counts':{'requested':0,'approved':0,'accepted':0} if owner else None,'minimum_group_size':5,'breakdowns':[],'synthetic':False},'execution_notice':'Planning and publication are not verified execution, staffing or permission.'}
+    result={'event':public_event,'tabs':TABS,'publication':publication,'visibility':visibility,'plan_id':plan_id,'viewer':{'is_organizer':owner,'can_edit_content':False,'can_discuss':False,'following':False},'organizer':{'label':creator.display_name if creator else 'Event organizer','verified':False},'scope':{'work_scope':snap['event']['goal'],'zones':[z['label'] for z in body['zones'] if z['in_scope']],'exclusions':c['scope_exclusions']},'stages':[{**s,'capacity':{'confirmed_people':0,'feasibility':'unverified'},'responsible_role_requirement_id':'','execution_status':'planned','work_count':sum(w['stage_id']==s['id'] for w in body['work'])} for s in body['stages']],'roles':roles,'updates':[],'photos':[],'sponsors':[],'discussions':[],'impact':{'verified_outputs':[],'reported_activity_count':0,'accepted_participants':0,'waste_collected_kg':None,'waste_handed_over_kg':None,'area_improved_hectares':None,'cleanup_zones_completed':None,'assessment_sections':None,'cleanup_complete':False},'communications':communications,'participation':c['participation'],'insights':{'enabled':c['tags']['collect_insights'],'status':'suppressed','reason':'No consented accepted participant records in this group','total_participants':0,'counts':{'requested':0,'approved':0,'accepted':0} if owner else None,'minimum_group_size':5,'breakdowns':[],'synthetic':False},'execution_notice':'Planning and publication are not verified execution, staffing or permission.'}
 
     from app.participation.projections import augment_profile
     from app.execution.coordination import participant

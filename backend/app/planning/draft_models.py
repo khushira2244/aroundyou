@@ -16,3 +16,5 @@ class PlanningDraft(Base):
     work_confirmed: Mapped[bool]=mapped_column(Boolean,default=False)
     actors_confirmed: Mapped[bool]=mapped_column(Boolean,default=False)
     derived_from: Mapped[dict|None]=mapped_column(JSONB)
+
+    stage_reviews: Mapped[dict]=mapped_column(JSONB,default=dict)

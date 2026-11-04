@@ -57,7 +57,7 @@ def readiness(db,e,actor,w):
     stage=next(x for x in p['stages'] if x['id']==w['stage_id'])
     pred|={x['id'] for x in p['work'] if x['stage_id'] in stage['dependency_ids']}
     unresolved=[wid for wid in pred if not (execution(db,e,wid) and execution(db,e,wid).content['status']=='completed')]
-    issues=[i.id for i in db.scalars(select(WorkIssue).where(WorkIssue.event_id==e.id,WorkIssue.plan_id==e.active_plan_id,WorkIssue.work_id==w['id'])) if i.content.get('blocking') and not i.content.get('condition_cleared')]
+    issues=[i.id for i in db.scalars(select(WorkIssue).where(WorkIssue.event_id==e.id,WorkIssue.plan_id==e.active_plan_id)) if w['id'] in i.content.get('work_ids',[i.work_id]) and (i.content.get('confirmed_blocking_condition') or i.content.get('protective_hold') or i.content.get('blocking')) and not i.content.get('condition_cleared')]
     return {'ready':not unresolved and not issues,'unverified_dependencies':sorted(unresolved),'blocking_issue_ids':issues,'preconditions':w['conditions']+w['exclusion_constraints']}
 
 def start(db,actor,e,wid,body):

@@ -18,7 +18,7 @@ def resolved_inputs(session, actor_id, event_id, refs):
         raise DomainError("input_budget_exceeded","Extraction input exceeds character budget",422)
     return sources
 
-def enqueue(session, actor_id, event_id, request):
+def enqueue(session, actor_id, event_id, request, *, live=False):
     require(session,actor_id,event_id,"memory:extract")
     resolved_inputs(session,actor_id,event_id,request.source_refs)
     body=request.model_dump()
@@ -30,7 +30,7 @@ def enqueue(session, actor_id, event_id, request):
     if not run:
         manifest=[r.model_dump() for r in request.source_refs]
         run=MemoryRun(id=uid(),event_id=event_id,requester_id=actor_id,purpose=request.purpose,extractor=request.extractor,schema_version=request.schema_version,dedup_key=key,source_manifest=manifest,source_manifest_digest=digest(manifest))
-        session.add(run);session.flush();session.add(JobTask(run_id=run.id))
+        session.add(run);session.flush();session.add(JobTask(run_id=run.id,max_attempts=1 if live else 3))
         audit(session,actor_id,event_id,"memory.extraction.request",run.id)
     return {"run_id":run.id,"status":run.status,"source_manifest_digest":run.source_manifest_digest,"candidate_ids":run.output_entry_ids,"status_url":f"/v1/events/{event_id}/memory/extractions/{run.id}"}
 
@@ -79,6 +79,9 @@ def review(session,actor,event_id,memory_id,body,key,if_match):
         entry=entry_access(session,actor,event_id,memory_id,True);guard(entry,body,if_match)
         if entry.lifecycle!="candidate": raise DomainError("invalid_state","Only a pending candidate can be reviewed")
         sources=current_sources(session,actor,entry)
+        if body.decision=='publish' and entry.kind=='lesson':
+            event=session.get(Event,event_id)
+            if event.memory_data_class!='real':raise DomainError('synthetic_memory','Trusted lessons require explicitly classified real-world sources',422)
         validate_candidates([{"kind":entry.kind,"title":entry.title,"assertions":entry.assertions,"applicability":entry.applicability}],sources)
         decision=ReviewDecision(id=uid(),event_id=event_id,actor_id=actor,subject_kind="memory",subject_id=entry.id,subject_digest=entry.digest,decision=body.decision,note=body.note)
         session.add(decision);session.flush()

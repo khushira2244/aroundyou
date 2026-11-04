@@ -15,6 +15,7 @@ dist/
 .venv/
 venv/
 .tmp/
+.private/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

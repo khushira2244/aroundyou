@@ -1,4 +1,4 @@
-"""Bounded recovery: schedule-only manual alternatives; all other changes fail closed."""
+"""Versioned selective alternatives; local edits never activate authoritative plans."""
 from copy import deepcopy
 from datetime import timedelta
 from sqlalchemy import select,func,text
@@ -22,6 +22,7 @@ class Alternative(StrictModel):
     title:str=Field(min_length=1,max_length=200)
     rationale:str=Field(min_length=1,max_length=2000)
     schedules:dict[str,Schedule]=Field(default_factory=dict,max_length=50)
+    patches:dict[str,dict]=Field(default_factory=dict,max_length=100)
     assumptions:list[str]=Field(default_factory=list,max_length=30)
     risks:list[str]=Field(default_factory=list,max_length=30)
     hold:bool=False
@@ -65,6 +66,16 @@ def validate(db,actor,e,d):
     if d['hold']:conditions.append('organizer_hold')
     if d['assumptions']:conditions.append('unverified_assumptions')
     content=d['plan'];works={w['id']:w for w in content['work']}
+    for node in d.get('changed_nodes',[]):
+        if not node.startswith('actor:'):continue
+        role=next(r for r in content['roles'] if r['id']==node.split(':',1)[1]);count=0
+        for a in db.scalars(select(Assignment).where(Assignment.event_id==e.id)):
+            if effective_assignment(db,a)!='assignment_accepted':continue
+            t=db.get(AssignmentTerms,a.current_terms_id)
+            if t.content['role_requirement_id']==role['id']:count+=1
+        if role['proposed_headcount'] is None or count<role['proposed_headcount']:conditions.append('actor_capacity_review:'+role['id'])
+        original=next(r for r in db.get(PlanVersion,d['base_plan_id']).content['roles'] if r['id']==role['id'])
+        if set(role['required_capabilities'])-set(original['required_capabilities']):conditions.append('new_capability_verification:'+role['id'])
     from app.resources.service import totals
     for w in content['work']:
         pred_stages=next(s for s in content['stages'] if s['id']==w['stage_id'])['dependency_ids']
@@ -121,9 +132,18 @@ def create(db,actor,e,b):
     allowed=set(scope['scope']['affected_work_ids'])-set(scope['scope']['preserved_complete_ids'])
     if not set(b.schedules)<=allowed:raise DomainError('scope_violation','Only affected unfinished work may change',422)
     for wid,s in b.schedules.items():by[wid]['schedule']=s.model_dump();by[wid]['revision']+=1
+    from app.recovery.workspace import apply_patches
+    changed_nodes=apply_patches(content,b.patches,scope['scope'])
+    # Actor windows are derived from exact candidate source work, never invented capacity.
+    changed_schedule_ids={wid for wid,w in by.items() if w['schedule']!=next(old for old in base.content['work'] if old['id']==wid)['schedule']}
+    for role in content['roles']:
+        if set(role['work_ids'])&changed_schedule_ids or 'actor:'+role['id'] in b.patches:
+            role['schedule_intervals']=[by[wid]['schedule'] for wid in role['work_ids']]
     content=PlanContent.model_validate(content).model_dump()
-    changed=[k for k in b.schedules if next(w for w in base.content['work'] if w['id']==k)!=by[k]]
-    if not changed and not b.hold:raise DomainError('empty_alternative','Provide changed schedules or explicit hold',422)
+    changed=[w['id'] for w in content['work'] if next(old for old in base.content['work'] if old['id']==w['id'])!=w]
+    for role in content['roles']:
+        if role!=next(old for old in base.content['roles'] if old['id']==role['id']):changed=list(set(changed)|set(role['work_ids']))
+    if not changed and not changed_nodes and not b.hold:raise DomainError('empty_alternative','Provide changed nodes or explicit hold',422)
     # Immutable inactive plan; sequence is event-locked and not assumed to follow active sequence.
     seq=(db.scalar(select(func.max(PlanVersion.sequence)).where(PlanVersion.event_id==e.id)) or 0)+1
     candidate=PlanVersion(id=uid(),event_id=e.id,sequence=seq,parent_id=base.id,context_revision_id=e.active_context_revision_id,content=content,digest=digest(content),created_by=actor)
@@ -138,12 +158,13 @@ def create(db,actor,e,b):
         if any(s!=ss[0] for s in ss):raise DomainError('unsupported_assignment_split','Split assignment schedules require separate alternatives',422)
         data=deepcopy(old.content);data['schedule']=ss[0]
         for req in data.get('work_requirements',[]):req['revision']=by[req['id']]['revision']
+        data['recovery_material_changes']={key:value for key,value in b.patches.items() if key.startswith(('actor:','work:'))}
         seqterm=(db.scalar(select(func.max(AssignmentTerms.sequence)).where(AssignmentTerms.assignment_id==a.id)) or 0)+1
         t=AssignmentTerms(id=uid(),event_id=e.id,assignment_id=a.id,plan_id=candidate.id,sequence=seqterm,content=data,digest=digest({'terms':data,'plan':candidate.id}),created_by=actor,expires_at=now()+timedelta(days=7))
         db.add(t);db.flush();recon[a.id]={'terms_id':t.id,'original_terms_id':old.id,'account_id':a.account_id}
     memory=MuseSparkContextBuilder().build(db,actor,e.id,purpose='blocker_recovery')
     d={'base_plan_id':base.id,'candidate_plan_id':candidate.id,'plan':content,'issue_ids':b.issue_ids,'scope':scope,'fingerprint':fingerprint(db,e,b.issue_ids),
-       'memory_context':memory,'reconfirmations':recon,'changed_work_ids':changed,'title':b.title,'rationale':b.rationale,'assumptions':b.assumptions,'risks':b.risks,'hold':b.hold,
+       'memory_context':memory,'reconfirmations':recon,'changed_work_ids':sorted(changed),'changed_nodes':changed_nodes,'title':b.title,'rationale':b.rationale,'assumptions':b.assumptions,'risks':b.risks,'hold':b.hold,
        'status':'pending','audience':'internal','decision_history':[],'outcome':'inconclusive','model_execution':False}
     d['proposal_digest']=digest(d)
     row=CoordinationRecord(id=uid(),event_id=e.id,account_id=actor,kind='recovery',content={});db.add(row);db.flush();record(db,actor,e,row,'recovery.propose',d,'proposed')

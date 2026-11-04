@@ -17,9 +17,18 @@ def create_app(settings=None, session_factory=None, extractor=None, planning_ada
     if evidence_storage is None and settings.evidence_directory:
         from app.execution.storage import LocalPrivateStorage
         evidence_storage=LocalPrivateStorage(settings.evidence_directory)
+    from app.execution.media import router as media_router
+    app.include_router(media_router,prefix='/v1')
     app.state.evidence_storage=evidence_storage
     app.state.settings=settings
+    if extractor is None and settings.modal_memory_enabled:
+        if not all((settings.modal_memory_endpoint,settings.modal_memory_proxy_key,settings.modal_memory_proxy_secret)):raise ValueError('Explicit Modal memory endpoint and proxy credentials required')
+        from app.memory.modal_adapter import ModalHTTPExtractor
+        extractor=ModalHTTPExtractor(settings.modal_memory_endpoint,settings.modal_memory_proxy_key.get_secret_value(),settings.modal_memory_proxy_secret.get_secret_value())
     app.state.extractor=extractor
+    if planning_adapter is None and settings.meta_ai_enabled and settings.meta_api_key:
+        from app.ai.meta_provider import MetaProvider
+        planning_adapter=MetaProvider(settings.meta_api_key.get_secret_value(),settings.meta_model_id)
     app.state.planning_adapter=planning_adapter
     if session_factory is None:
         engine,session_factory=database(settings.database_url.get_secret_value())
@@ -51,12 +60,16 @@ def create_app(settings=None, session_factory=None, extractor=None, planning_ada
     def health(): return {"status":"ok","group":4}
     if settings.app_env=='development':
         from fastapi.middleware.cors import CORSMiddleware
-        app.add_middleware(CORSMiddleware,allow_origins=['http://127.0.0.1:5173','http://localhost:5173'],allow_methods=['GET','POST','PUT','PATCH','DELETE'],allow_headers=['Authorization','Content-Type','If-Match','Idempotency-Key'])
+        app.add_middleware(CORSMiddleware,allow_origins=['http://127.0.0.1:5173','http://localhost:5173'],allow_credentials=True,allow_methods=['GET','POST','PUT','PATCH','DELETE'],allow_headers=['Authorization','Content-Type','If-Match','Idempotency-Key'])
+    from app.access.accounts import router as accounts_router
+    app.include_router(accounts_router,prefix='/v1')
     app.include_router(access_router,prefix="/v1")
     app.include_router(event_router,prefix="/v1")
     app.include_router(memory_router,prefix="/v1")
     from app.api.group2 import router as group2_router
     app.include_router(group2_router,prefix="/v1")
+    from app.ai.voice import router as voice_router
+    app.include_router(voice_router,prefix='/v1')
     from app.api.group3 import router as group3_router
     app.include_router(group3_router,prefix="/v1")
     from app.api.group4 import router as group4_router

@@ -14,7 +14,7 @@ def accepted(session,event):return [a for a in session.scalars(select(Assignment
 def role_view(r):return {**r,'commitment':{'effort_person_hours':r['effort_person_hours'],'schedule_intervals':r['schedule_intervals']},'delegated_permissions':[],'status':'planned_requirement'}
 
 def augment_profile(session,event,profile):
-    release=session.get(Publication,event.current_publication_id)
+    release=session.get(Publication,event.current_publication_id) if event.current_publication_id else None
     if not release:return profile
     rows=accepted(session,event);ids={a.account_id for a in rows};roles=Counter(session.get(AssignmentTerms,a.current_terms_id).content['role_requirement_id'] for a in rows)
     for r in profile['roles']:
@@ -79,12 +79,45 @@ def organizer_participants(session,actor,event):
 
 def my_events(session,actor):
     result=[]
-    for event in session.scalars(select(Event).order_by(Event.id)):
+    for event in session.scalars(select(Event).where(Event.lifecycle!='deleted').order_by(Event.id)):
         organizer=allowed(session,actor,event.id,'plan:write') and allowed(session,actor,event.id,'event:read')
         apps=list(session.scalars(select(Application).where(Application.event_id==event.id,Application.account_id==actor)))
         assignments=[assignment_dto(session,a) for a in session.scalars(select(Assignment).where(Assignment.event_id==event.id,Assignment.account_id==actor)) if effective_assignment(session,a)=='assignment_accepted']
         if organizer or apps or assignments:
             release=session.get(Publication,event.current_publication_id) if event.current_publication_id else None
             e=event_dto(event) if organizer else {**release.snapshot['event'],'context_id':None} if release else {'id':event.id,'title':'Unavailable event','location':{'label':''},'schedule':{'timezone':'UTC','anchor_date':None,'relative_days':[]}}
-            result.append({'event':e,'organizer':organizer,'applications':[application_dto(session,a) for a in apps],'accepted_assignments':assignments})
+            item={'event':e,'organizer':organizer,'can_delete':organizer and event.creator_id==actor,'applications':[application_dto(session,a) for a in apps],'accepted_assignments':assignments}
+            if organizer:
+                from app.planning.draft_models import PlanningDraft
+                from app.planning.service import reviewed_stages
+                from urllib.parse import quote
+                base=f'/events/{event.id}'
+                draft=session.scalar(select(PlanningDraft).where(PlanningDraft.event_id==event.id))
+                saved=(draft.stage_reviews or {}).get('workflow_progress',{}) if draft else {}
+                if event.lifecycle=='published':
+                    path=base+'/manage/overview'
+                elif event.lifecycle=='draft':
+                    path=f'/events/{event.id}/create/{event.draft_step}'
+                elif saved.get('step') in ('governance','governance/ticket','planning','work','actors','setup','finalize'):
+                    path=base+'/'+saved['step']
+                    if saved['step']=='work' and draft:
+                        stage=saved.get('stage_id')
+                        if stage in {s['id'] for s in draft.content['stages']}:
+                            path+='/'+quote(stage,safe='')
+                elif not draft:
+                    path=base+'/governance'
+                elif not draft.stage_confirmed:
+                    path=base+'/planning'
+                elif not draft.work_confirmed:
+                    remaining=next((s['id'] for s in draft.content['stages'] if s['id'] not in reviewed_stages(draft,'work')),None)
+                    path=base+'/work'+('/'+quote(remaining,safe='') if remaining else '')
+                elif not draft.actors_confirmed:
+                    path=base+'/actors'
+                else:
+                    path=base+'/setup'
+                item['resume_path']=path
+            result.append(item)
     return result
+
+
+

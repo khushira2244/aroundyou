@@ -67,8 +67,31 @@ def test_governance_receives_actual_event_facts_and_uncertain_legal_sources(flow
     g=flow.get('/governance').json()['data'];assert g['items']==[] and g['guidance']['status']=='stale_reassessment_required'
 
 
-def test_internal_ticket_status_and_private_documents_never_external_approval(flow,headers):
-    flow.new();ticket=flow.call('/governance/tickets',{})['ticket'];path='/governance/tickets/'+ticket['id']
+def test_internal_ticket_status_and_private_documents_never_external_approval(flow,headers,app,factory,tmp_path):
+    flow.new()
+    flow.call('/governance/tickets',{},expected=422)
+    app.state.planning_adapter=FakeMuse()
+    flow.call('/governance/assessments',{},expected=202)
+    assert work_ai_once(factory,app.state.planning_adapter)
+    proposal=flow.get('/governance').json()['data']['proposals'][0]
+    flow.call('/governance/proposals/'+proposal['id']+'/review',{'decision':'accept','reviewed_digest':proposal['digest']})
+    from app.execution.storage import LocalPrivateStorage
+    app.state.evidence_storage=LocalPrivateStorage(tmp_path)
+    requirement=proposal['items'][0]['id']
+    original=b'%PDF-1.4\nprivate notes'
+    base='/v1/events/'+flow.id+'/governance/tickets'
+    response=flow.client.post(base+'/with-files',files=[(requirement,('notes.pdf',original,'application/pdf'))],headers=flow.headers(key='governance-file-confirm',version=str(flow.get('').json()['data']['version'])))
+    assert response.status_code==200,response.text
+    ticket=response.json()['data']['ticket']
+    document=ticket['documents'][0]
+    assert document['name']=='notes.pdf' and 'storage_key' not in document
+    content=base+'/'+ticket['id']+'/documents/'+document['id']+'/content'
+    assert flow.client.get(content,headers=flow.headers()).content==original
+    assert flow.client.get(content,headers=headers('viewer-subject')).status_code==404
+    assert flow.get('/governance').json()['data']['ticket']['documents']==[document]
+    assert ticket['advisory_id']==proposal['id'] and ticket['confirmed_at']
+    assert flow.call('/governance/tickets',{})['ticket']['id']==ticket['id']
+    path='/governance/tickets/'+ticket['id']
     for status in ['in_review','waiting_for_documents','closed','open']:
         value=flow.call(path,{'status':status,'note':'Organizer follow-up only'},method='PATCH')['ticket'];assert value['status']==status and value['permission_status']=='not_verified' and value['external_submission'] is False
     flow.call(path+'/documents',{'name':'Private venue notes','document_type':'venue','document_reference':'Private organizer folder'})
@@ -141,3 +164,6 @@ def test_retracted_memory_blocks_advice_acceptance_and_current_governance(flow,a
         retract(db,actor,flow.id,memory.id,RetractionRequest(reason='Organizer correction',reviewed_digest=memory.digest,expected_revision=memory.revision),'retract-used-memory',str(memory.version))
     if approved:assert flow.get('/governance').json()['data']['guidance']['status']=='stale_reassessment_required'
     else:flow.call(path,{'decision':'accept','reviewed_digest':p['digest']},expected=409)
+
+
+

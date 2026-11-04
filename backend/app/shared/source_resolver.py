@@ -19,7 +19,11 @@ class ResolvedSource:
     applicability: dict
 
 def decision_digest(row):
-    return digest({k:getattr(row,k) for k in ["event_id","actor_id","supersedes_id","subject_kind","subject_id","subject_digest","decision","evidence_stage","outcome","criteria","note"]})
+    content={k:getattr(row,k) for k in ["event_id","actor_id","supersedes_id","subject_kind","subject_id","subject_digest","decision","evidence_stage","outcome","criteria","note"]}
+    # Preserve legacy source digests while binding new human corrections to their
+    # decision's provenance. This does not invoke extraction or another model.
+    if getattr(row,'reviewed_content',None) is not None:content['reviewed_content']=row.reviewed_content
+    return digest(content)
 
 def resolve(session, actor_id, event_id, ref):
     event=require(session,actor_id,event_id,"memory:read")
@@ -57,6 +61,12 @@ def resolve(session, actor_id, event_id, ref):
             report=session.get(WorkReport,row.content['record'].get('report_id'))
             if report and report.content['review_status']=='draft':missing()
         stage,outcome,criteria=row.content['evidence_stage'],row.content['outcome'],row.content.get('criteria')
+        if row.kind=='recovery.outcome':
+            from app.execution.models import WorkReport
+            if row.content['record'].get('data_class')!=event.memory_data_class:current=False
+            for ref_report in row.content['record'].get('reports',[]):
+                report=session.get(WorkReport,ref_report['id'])
+                if not report or report.event_id!=event_id or report.version!=ref_report['revision'] or report.content['review_status']!='accepted':current=False
         if row.kind=='stage.complete':
             from app.execution.models import WorkExecution
             for wid,version in row.content['record']['work_versions'].items():
@@ -68,6 +78,9 @@ def resolve(session, actor_id, event_id, ref):
             if not report or report.version!=row.content['record']['report_revision'] or report.content['review_status']!='accepted':current=False
         # Records distinguish exact observed/reviewed operations from reusable success lessons.
         revision,hashed,text,access,app=row.sequence,row.digest,__import__('json').dumps({'kind':row.kind,'source_record':row.content,'notice':'Exact historical execution record; not a general success claim'},ensure_ascii=False),"private",{'category':event.category}
+        if row.kind.startswith('recovery.') and row.kind!='recovery.outcome':
+            # Full original remains immutable; derived projections never copy plan blobs or personal notes.
+            r=row.content['record'];text=__import__('json').dumps({'kind':row.kind,'status':r.get('status'),'changed_work_ids':r.get('changed_work_ids',[]),'issue_ids':r.get('issue_ids',[]),'notice':'Bounded operation projection, not an outcome or a reusable lesson'})
         if stage=='verified' and not allowed(session,row.actor_id,event_id,'plan:write'):
             from app.execution.service import reviewer,work
             wid=row.content['record'].get('work_id')

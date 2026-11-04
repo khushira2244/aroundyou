@@ -11,6 +11,10 @@ def session(request: Request):
             yield db
 
 def identity(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer), db=Depends(session, scope="function")):
+    if not credentials and request.cookies.get('aroundyou_session'):
+        from app.access.accounts import cookie_user,origin
+        if request.method not in ('GET','HEAD','OPTIONS'):origin(request)
+        return cookie_user(db,request.cookies['aroundyou_session'])
     if not credentials or credentials.scheme.lower()!="bearer":
         raise DomainError("unauthenticated","Valid bearer token required",401)
     return authenticate(db,request.app.state.settings,credentials.credentials)

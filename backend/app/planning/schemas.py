@@ -38,6 +38,9 @@ class Stage(StrictModel):
     duration: Quantity = Field(default_factory=lambda:Quantity(unit="days"))
     staffing_assumptions: list[str] = Field(default_factory=list,max_length=30)
     resource_constraints: list[str] = Field(default_factory=list,max_length=30)
+    risks: list[str] = Field(default_factory=list,max_length=30)
+    assumptions: list[str] = Field(default_factory=list,max_length=30)
+    governance_prerequisites: list[str] = Field(default_factory=list,max_length=30)
 class WorkGroup(StrictModel):
     id: str = Field(min_length=1,max_length=60)
     stage_id: str
@@ -86,6 +89,9 @@ class ActorRequirement(StrictModel):
     effort_person_hours: float | None = Field(default=None,ge=0,allow_inf_nan=False)
     capacity_assumptions: list[str] = Field(default_factory=list,max_length=30)
     safety_considerations: list[str] = Field(default_factory=list,max_length=30)
+    responsibilities: list[str] = Field(default_factory=list,max_length=30)
+    coordination_needs: list[str] = Field(default_factory=list,max_length=30)
+    resource_responsibilities: list[str] = Field(default_factory=list,max_length=30)
 class Dependency(StrictModel):
     predecessor: str
     successor: str
@@ -104,6 +110,7 @@ def acyclic(ids,edges):
     if count!=len(ids):raise ValueError("Dependency cycle")
 
 class PlanContent(StrictModel):
+    stale_work_ids: list[str] = Field(default_factory=list,max_length=500)
     stages: list[Stage] = Field(default_factory=list,max_length=100)
     work: list[Work] = Field(default_factory=list,max_length=500)
     dependencies: list[Dependency] = Field(default_factory=list,max_length=2000)
@@ -116,6 +123,8 @@ class PlanContent(StrictModel):
         maps={name:{x.id:x for x in getattr(self,name)} for name in ['stages','work','groups','resources','roles','zones']}
         if any(len(maps[n])!=len(getattr(self,n)) for n in maps):raise ValueError("Duplicate IDs")
         stages,work=maps['stages'],maps['work']
+        outside={w.id for w in self.work if w.stage_id in stages and not stages[w.stage_id].relative_start<=w.schedule.start_day<=w.schedule.end_day<=stages[w.stage_id].relative_end}
+        if set(self.stale_work_ids)!=outside:raise ValueError('Stage/work conflicts require exact explicit stale-work markers')
         acyclic(stages,[(p,s.id) for s in self.stages for p in s.dependency_ids])
         edges={(d.predecessor,d.successor) for d in self.dependencies}
         if len(edges)!=len(self.dependencies):raise ValueError("Duplicate dependency")
@@ -123,6 +132,8 @@ class PlanContent(StrictModel):
         acyclic(work,edges)
         for s in self.stages:
             if s.relative_end<s.relative_start:raise ValueError("Invalid stage window")
+            if s.effort.unit not in ('person_hours','person-hours','person hours'):raise ValueError('Stage effort requires person-hours')
+            if s.duration.value is not None and (s.duration.unit!='days' or s.duration.value!=s.relative_end-s.relative_start+1):raise ValueError('Stage duration/window mismatch')
             for p in s.dependency_ids:
                 if stages[p].relative_end>=s.relative_start:raise ValueError("Incompatible finish-to-start stage timing")
         for g in self.groups:
@@ -130,7 +141,7 @@ class PlanContent(StrictModel):
         for w in self.work:
             if w.stage_id not in stages:raise ValueError("Work stage does not exist")
             s=stages[w.stage_id]
-            if not s.relative_start<=w.schedule.start_day<=w.schedule.end_day<=s.relative_end:raise ValueError("Work outside stage window")
+            if not s.relative_start<=w.schedule.start_day<=w.schedule.end_day<=s.relative_end and w.id not in self.stale_work_ids:raise ValueError("Work outside stage window")
             if w.work_group_id and (w.work_group_id not in maps['groups'] or maps['groups'][w.work_group_id].stage_id!=w.stage_id):raise ValueError("Incompatible work group")
             if any(z not in maps['zones'] or not maps['zones'][z].in_scope for z in w.zone_ids):raise ValueError("Unknown/excluded zone")
             if any(r not in maps['resources'] or w.id not in maps['resources'][r].work_ids for r in w.resource_requirement_ids):raise ValueError("Dangling/incompatible resource")

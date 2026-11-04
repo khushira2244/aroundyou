@@ -1,0 +1,13 @@
+.intent-section .intent-tools:has(> .voice-panel) { flex-wrap: wrap; }
+.intent-section .intent-tools > .voice-panel { flex-basis: 100%; width: 100%; min-width: 0; }
+
+.intent-section .voice-recording-controls { display:flex; align-items:center; flex-wrap:wrap; gap:12px; color:#a12626; font-weight:600; }
+.intent-section .voice-recording-controls .record-dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:#c62828; margin-right:6px; }
+
+.voice-recording-dialog { position:fixed; inset:0; margin:auto; width:min(420px, calc(100% - 32px)); padding:32px; text-align:center; border:1px solid #d9e6ee; border-radius:20px; background:white; color:#10243b; box-shadow:0 20px 60px #10243b30; }
+.voice-recording-dialog::backdrop { background:#10243b80; }
+.voice-mic { display:grid; place-items:center; width:72px; height:72px; margin:0 auto 24px; border-radius:50%; background:#e5f0ff; color:#175ed0; }
+.voice-mic-active { animation:voice-mic-pulse 1.6s ease-out infinite; }
+.voice-timer { font-size:1.4rem; font-variant-numeric:tabular-nums; margin:12px 0 20px; }
+@keyframes voice-mic-pulse { from { box-shadow:0 0 0 0 #2475ec55; } to { box-shadow:0 0 0 18px #2475ec00; } }
+@media (prefers-reduced-motion:reduce) { .voice-mic-active { animation:none; } }

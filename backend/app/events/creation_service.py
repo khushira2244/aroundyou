@@ -14,6 +14,10 @@ from app.planning.draft_models import PlanningDraft
 from app.api.errors import DomainError
 
 def new_draft(session,actor,format,key):
+    from app.access.accounts import Credential
+    credential=session.get(Credential,actor)
+    if credential and credential.account_kind=='sponsor':
+        raise DomainError('forbidden','Event creation requires a personal organizer account',403)
     def apply():
         form=CreationForm(format=format).model_dump()
         event=Event(id=uid(),creator_id=actor,title='',category='',lifecycle='draft',draft_form=form)
@@ -30,7 +34,7 @@ def invalidate(session,event):
         draft.stage_confirmed=False;draft.work_confirmed=False;draft.actors_confirmed=False;draft.derived_from=None;draft.version+=1
     if event.lifecycle!='draft':event.lifecycle='created_unpublished'
 
-def save_intent(session,actor,event,text,source='written',form=None):
+def save_intent(session,actor,event,text,source='written',form=None,transcript_run_id=None):
     if source=='reviewed_demo_transcript':raise DomainError('invalid_source','Demo transcript provenance cannot be sent to the backend',422)
     if source not in ('written','reviewed_transcript'):raise DomainError('invalid_source','Unsupported source',422)
     if not text.strip():raise DomainError('invalid_context','Original context is required',422)
@@ -38,7 +42,14 @@ def save_intent(session,actor,event,text,source='written',form=None):
     details={**(form or event.draft_form),'executionIntent':text,'intentSource':source}
     details={k:v for k,v in details.items() if k not in ('confirmAccuracy','confirmPlanning','confirmContinue')}
     snapshot={'creation_form':details,'clarification_rounds':current.snapshot.get('clarification_rounds',[]) if current else []}
-    if current and current.original_text==text and current.source_kind==source and current.snapshot.get('creation_form')==snapshot['creation_form']:return
+    if transcript_run_id:
+        from app.ai.models import AIRun
+        run=session.get(AIRun,transcript_run_id)
+        if source!='reviewed_transcript' or not run or run.event_id!=event.id or run.requester_id!=actor or run.kind!='voice_transcription' or run.status!='succeeded':raise DomainError('invalid_transcript','Use a successful transcript belonging to this event and organizer.',422)
+        snapshot['transcript_run_id']=run.id
+    elif current and source=='reviewed_transcript' and current.original_text==text and current.snapshot.get('transcript_run_id'):
+        snapshot['transcript_run_id']=current.snapshot['transcript_run_id']
+    if current and current.original_text==text and current.source_kind==source and current.snapshot.get('creation_form')==snapshot['creation_form'] and current.snapshot.get('transcript_run_id')==snapshot.get('transcript_run_id'):return
     # Group 1 supports human written/observation; reviewed transcript is stored as original written context plus provenance.
     row=append_context(session,actor,event.id,text,event.version,source_kind=source,snapshot=snapshot)
     invalidate(session,event)
@@ -48,9 +59,10 @@ def save_intent(session,actor,event,text,source='written',form=None):
 def save_draft(session,actor,event,step,raw):
     if event.lifecycle!='draft':raise DomainError('invalid_state','Creation draft is already confirmed')
     form=CreationForm.model_validate(raw)
+    if form.model_dump()==event.draft_form and event.draft_step==step:return creation_dto(session,event)
     event.title=form.title;event.category=form.category
     if form.executionIntent:save_intent(session,actor,event,form.executionIntent,form.intentSource,form.model_dump())
-    event.title=form.title;event.category=form.category;event.draft_form=form.model_dump();event.draft_step=max(event.draft_step,step);event.version+=1
+    event.title=form.title;event.category=form.category;event.draft_form=form.model_dump();event.draft_step=step;event.version+=1
     audit(session,actor,event.id,'event.draft.save',event.id,step=step)
     return creation_dto(session,event)
 
@@ -110,3 +122,4 @@ def revise_details(session,actor,event,raw):
     event.draft_form=form.model_dump();event.version+=1
     audit(session,actor,event.id,'context.details.revise',event.id)
     return creation_dto(session,event)
+

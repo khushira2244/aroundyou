@@ -17,3 +17,13 @@
 .my-event-card footer small{display:block;color:#526883;font-size:12px;line-height:1.5;margin-top:4px}
 .my-event-card footer .button{white-space:normal;text-align:center}
 @media(max-width:800px){.my-event-card{padding:18px}.my-events-page .participation-page-heading{flex-wrap:wrap}}
+
+/* AROUNDYOU UI CHANGE: compact, left-aligned organizer application accordions. */
+.participant-review-detail{min-width:0;overflow-wrap:anywhere}
+.participant-review-detail .participant-confirm-request{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0 16px}
+.participant-review-detail .participant-confirm-request small{flex-basis:100%;margin:0}
+.participant-review-detail .participant-review-accordion{border:1px solid #dce9e5;border-radius:10px;background:#fff;margin:10px 0;overflow:hidden}
+.participant-review-detail .participant-review-accordion>summary{display:list-item;cursor:pointer;padding:14px 16px;text-align:left;font-weight:700;color:#163b32;background:#f7fcf9;line-height:1.4}
+.participant-review-detail .participant-review-accordion-body{padding:4px 16px 16px;min-width:0}
+.participant-review-detail .participant-review-accordion-body p{white-space:normal;overflow-wrap:anywhere}
+.participant-review-detail .participant-review-accordion-body .button{max-width:100%;white-space:normal}

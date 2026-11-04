@@ -17,6 +17,7 @@ def require_state(condition,message):
     if not condition:raise DomainError('invalid_state',message)
 
 def published(session,event,actor=None,current=False):
+    if not event or event.lifecycle=='deleted':missing()
     release=session.get(Publication,event.current_publication_id) if event.current_publication_id else None
     if not release or (release.visibility!='public' and not (actor and allowed(session,actor,event.id,'event:read'))):missing()
     if current:require_state(release.plan_id==event.active_plan_id and release.snapshot['event']['context_id']==event.active_context_revision_id,'Published plan/context changed; organizer must republish')
@@ -131,6 +132,7 @@ def clarify(session,actor,event,a,question=None,clarification_id=None,answer=Non
 def effective_assignment(session,a):
     t=session.get(AssignmentTerms,a.current_terms_id)
     event=session.get(Event,a.event_id)
+    if event.lifecycle=='deleted':return 'event_deleted'
     if a.status=='assignment_offered' and t.expires_at<=now():return 'assignment_expired'
     if a.status=='assignment_accepted':
         release=session.get(Publication,event.current_publication_id) if event.current_publication_id else None

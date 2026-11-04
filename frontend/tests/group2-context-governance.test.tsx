@@ -26,10 +26,14 @@ it('displays and reviews pending governance advice in HTTP mode',async()=>{
  const state={event:{id:'e',title:'Reading workshop',category:'Education',format:'in_person',location:{label:'Library'},schedule:{timezone:'Asia/Kolkata'}},context:{version:1,original_text:'Reading sessions'},planning:{stages:{},work:{},roles:{},resources:{}},proposals:[],work_groups:[],warnings:[],revision:1};
  const governance={guidance:{status:'not_assessed'},items:[],ticket:null,proposals:[{id:'p',digest:'abc',status:'pending',items:[{id:'venue',title:'Check library access',detail:'Ask the venue owner',classification:'conditional_recommendation',uncertainty:['Local rules unverified']}]}]};
  const command=vi.fn(async()=>({saved:true}));
- const service={mode:'http',setIdentity:()=>{},openPlanning:async()=>state,readPlanning:async()=>state,governanceState:async()=>governance,planningCommand:command} as unknown as AroundYouService;
+  const service={mode:'http',setIdentity:()=>{},openPlanning:async()=>state,readPlanning:async()=>state,governanceState:async()=>governance,planningCommand:command} as unknown as AroundYouService;
  render(<MemoryRouter initialEntries={['/events/e/governance']}><AppProvider providedService={service}><App/></AppProvider></MemoryRouter>);
+ expect(await screen.findByRole('button',{name:'Governance Check'})).toBeEnabled();
+ expect(command).not.toHaveBeenCalled();
  expect(await screen.findByText('Check library access')).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'Accept advisory assessment'}));
  await waitFor(()=>expect(command).toHaveBeenCalledWith('reviewGovernanceAdvisory',{proposalId:'p',digest:'abc',decision:'accept'}));
  expect(screen.getByText('Verified rule source: none verified in this integration.')).toBeInTheDocument();
 });
+
+

@@ -21,8 +21,11 @@ def event(db,eid):
     if not e:missing()
     return e
 @router.get('/events/{event_id}/execution')
-def execution_state(event_id:str,user=USER,db=DB):
-    e=event(db,event_id);return ok(ep.state(db,user.id,e),e)
+def execution_state(event_id:str,request:Request,user=USER,db=DB):
+    e=event(db,event_id);data=ep.state(db,user.id,e)
+    if getattr(request.app.state.planning_adapter,'send',None):
+        data['analysis_provider']={'configured':True,'status':'explicit_request_required','message':'Explicit private audio/image analysis available; human review remains authoritative'}
+    return ok(data,e)
 @router.post('/events/{event_id}/execution/work/{work_id}/start')
 @router.post('/events/{event_id}/execution/work/{work_id}/complete')
 @router.post('/events/{event_id}/execution/work/{work_id}/reopen')
@@ -74,9 +77,6 @@ def evidence_content(event_id:str,asset_id:str,request:Request,user=USER,db=DB):
 @router.post('/events/{event_id}/evidence/{asset_id}/inspection')
 def evidence_inspect(event_id:str,asset_id:str,body:EvidenceReview,user=USER,db=DB,if_match:str=Header(),idempotency_key:str=Header()):
     return write(db,user,event_id,'evidence.inspect:'+asset_id,idempotency_key,if_match,body.model_dump(),lambda e:ev.inspect(db,user.id,e,asset_id,body))
-@router.post('/events/{event_id}/media/{asset_id}/transcription-runs')
-def unavailable_transcription(event_id:str,asset_id:str,user=USER,db=DB):
-    ev.get(db,user.id,event(db,event_id),asset_id);raise DomainError('provider_unavailable','No transcription provider configured; no transcript generated',503)
 @router.post('/events/{event_id}/attendance')
 def attendance(event_id:str,body:Attendance,user=USER,db=DB,if_match:str=Header(),idempotency_key:str=Header()):
     return write(db,user,event_id,'attendance.'+body.action,idempotency_key,if_match,body.model_dump(),lambda e:es.attendance(db,user.id,e,body))

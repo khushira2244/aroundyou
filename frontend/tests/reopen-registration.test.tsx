@@ -1,0 +1,32 @@
+import {it,expect,vi,afterEach} from 'vitest';
+import {render,screen,fireEvent,cleanup,waitFor} from '@testing-library/react';
+import {MemoryRouter} from 'react-router-dom';
+import type {SetupState} from '../src/services/publication-contracts';
+import {FinalizePublish} from '../src/features/event-setup/FinalizePublish';
+const mock=vi.hoisted(()=>({state:null as SetupState|null,act:vi.fn(async()=>({saved:true}))}));
+vi.mock('../src/features/event-setup/useSetup',()=>({useSetup:()=>({...mock,problem:'',busy:false})}));
+vi.mock('../src/features/event-setup/SetupShell',()=>({SetupShell:({children}:{children:React.ReactNode})=><main>{children}</main>,EventStrip:()=>null}));
+afterEach(()=>{cleanup();vi.clearAllMocks()});
+it('allows a published organizer to draft registration changes and explicitly finalize and republish',async()=>{
+ mock.state={event:{id:'event',title:'Reading workshop',category:'Education'},configuration:{revision:1,participation:{visibility:'public',registration_open:false,approval_required:true,allow_groups:false},publish_mode:'now'},checklist:[],lifecycle:'published',publication:'published'} as unknown as SetupState;
+ const view=render(<MemoryRouter><FinalizePublish/></MemoryRouter>);
+ const checkbox=screen.getByRole('checkbox',{name:'Allow people to request to participate'});
+ expect(checkbox).toBeEnabled();expect(checkbox).not.toBeChecked();
+ expect(screen.getByRole('button',{name:'Publish Event'})).toBeDisabled();
+ fireEvent.click(checkbox);
+ await waitFor(()=>expect(mock.act).toHaveBeenCalledWith('saveSetupSection',{section:'participation',data:{visibility:'public',registration_open:true,approval_required:true,allow_groups:false}}));
+ // The live publication remains present while the revised configuration awaits review.
+ mock.state={...mock.state!,lifecycle:'planned',configuration:{...mock.state!.configuration,revision:2,participation:{...mock.state!.configuration.participation,registration_open:true}}};
+ view.rerender(<MemoryRouter><FinalizePublish/></MemoryRouter>);
+ expect(screen.getByRole('button',{name:'Publish Event'})).toBeDisabled();
+ fireEvent.click(screen.getByRole('checkbox',{name:/I reviewed this exact event configuration/}));
+ expect(screen.getByRole('button',{name:'Finalize Current Configuration'})).toBeEnabled();
+ fireEvent.click(screen.getByRole('button',{name:'Finalize Current Configuration'}));
+ await waitFor(()=>expect(mock.act).toHaveBeenCalledWith('finalizeEvent',{confirmReview:true}));
+ mock.state={...mock.state!,lifecycle:'finalized'};
+ view.rerender(<MemoryRouter><FinalizePublish/></MemoryRouter>);
+ expect(mock.state.publication).toBe('published');
+ expect(screen.getByRole('button',{name:'Publish Event'})).toBeEnabled();
+ fireEvent.click(screen.getByRole('button',{name:'Publish Event'}));
+ await waitFor(()=>expect(mock.act).toHaveBeenCalledWith('publishEvent'));
+});

@@ -76,15 +76,18 @@ class UsageCommand(StrictModel):
 class Issue(StrictModel):
     work_id:str
     resource_ids:list[str]=Field(default_factory=list,max_length=30)
-    category:Literal['resource_missing','delay','access','safety','equipment_damage','equipment_loss','other']='other'
-    description:str=Field(min_length=1,max_length=4000)
+    category:Literal['personal_unavailability','assignment_conflict','resource_missing','delay','dependency','venue','access','safety','equipment_damage','equipment_loss','other']='other'
+    description:str=Field(min_length=8,max_length=4000)
+    affected_work_ids:list[str]=Field(default_factory=list,max_length=50)
+    can_continue:bool|None=None
+    resource_count:dict=Field(default_factory=dict)
     severity:Literal['delayed','impossible','unsafe']='delayed'
     occurred_at:str=Field(default='',max_length=60)
     effect:str=Field(default='',max_length=2000)
     evidence_ids:list[str]=Field(default_factory=list,max_length=20)
 class IssueReview(StrictModel):
     expected_revision:int=Field(ge=1)
-    state:Literal['acknowledged','investigating','resolved','closed']
+    state:Literal['acknowledged','investigating','nonblocking','resolved','closed']
     condition_cleared:bool=False
     note:str=Field(min_length=1,max_length=2000)
 class Coordination(StrictModel):
@@ -101,6 +104,7 @@ class Coordination(StrictModel):
     status:Literal['draft','published','scheduled','decided','open','completed']='draft'
 class CoordinationUpdate(StrictModel):
     expected_revision:int=Field(ge=1)
-    action:Literal['publish','confirm','rsvp','approve_action','complete_action','cancel']
+    action:Literal['publish','confirm','rsvp','approve_action','complete_action','cancel','revise_invitees']
+    invited_account_ids:list[str]=Field(default_factory=list,max_length=100)
     response:Literal['going','maybe','not_going']='going'
     note:str=Field(default='',max_length=2000)

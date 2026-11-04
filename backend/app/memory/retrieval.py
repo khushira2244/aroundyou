@@ -34,7 +34,12 @@ def retrieve(session,actor_id,event_id,q=None,purpose="planning",kind=None,evide
             offset=data["offset"]
         except Exception: raise DomainError("invalid_cursor","Invalid retrieval cursor",422) from None
     if not 1<=limit<=20: raise DomainError("invalid_limit","Limit must be 1..20",422)
-    query=select(MemoryEntry).where(MemoryEntry.event_id==event_id,MemoryEntry.lifecycle=="published")
+    from sqlalchemy import or_,and_
+    from app.events.models import Event
+    query=select(MemoryEntry).where(MemoryEntry.lifecycle=="published")
+    if include_reusable:
+        query=query.where(or_(MemoryEntry.event_id==event_id,and_(MemoryEntry.kind=='lesson',MemoryEntry.review_decision_id.is_not(None),MemoryEntry.event_id.in_(select(Event.id).where(Event.memory_data_class=='real')))))
+    else:query=query.where(MemoryEntry.event_id==event_id)
     if kind: query=query.where(MemoryEntry.kind==kind)
     for key,value in [("category",category),("work_pattern",work_pattern)]:
         if value: query=query.where(MemoryEntry.applicability[key].astext==value)
@@ -56,7 +61,7 @@ def retrieve(session,actor_id,event_id,q=None,purpose="planning",kind=None,evide
     import base64,json
     next_cursor=base64.urlsafe_b64encode(json.dumps({"binding":digest({"actor":actor_id,"event":event_id,"query":query_digest}),"offset":offset+len(selected)}).encode()).decode() if has_more else None
     retrieval_id=uid()
-    manifest=[{"memory_id":e.id,"revision":e.revision,"digest":e.digest} for e in selected]
+    manifest=[{"memory_id":e.id,"event_id":e.event_id,"revision":e.revision,"digest":e.digest} for e in selected]
     refs={}
     for entry in selected:
         for row in source_rows(session,entry):
@@ -65,7 +70,7 @@ def retrieve(session,actor_id,event_id,q=None,purpose="planning",kind=None,evide
     sources=list(refs.values())
     session.add(MemoryRun(id=retrieval_id,event_id=event_id,requester_id=actor_id,kind="retrieval",purpose=purpose,extractor="postgres-lexical",schema_version="memory-v1",dedup_key=retrieval_id,source_manifest=sources,source_manifest_digest=digest(sources),query_digest=query_digest,selection_manifest=manifest,status="succeeded",output_entry_ids=[e.id for e in selected]))
     session.flush()
-    return {"items":[serialize(session,e) for e in selected],"retrieval_id":retrieval_id,"query_digest":query_digest,"policy_version":"event-only-v1","selected_revision_manifest":[{"memory_id":e.id,"revision":e.revision,"digest":e.digest} for e in selected],"applicability_reasons":["Exact supplied structured conditions matched; other conditions remain unverified"],"limitations":["Event-scoped only; cross-event reuse is disabled in Group 1","Relevance is not verification"],"next_cursor":next_cursor}
+    return {"items":[serialize(session,e) for e in selected],"retrieval_id":retrieval_id,"query_digest":query_digest,"policy_version":"dual-authorized-v1" if any(e.event_id!=event_id for e in selected) else "event-only-v1","selected_revision_manifest":manifest,"applicability_reasons":["Supplied structured filters matched; source-event authorization and current lineage checked"],"limitations":["Cross-event lessons require permission to both events; no public sharing","Relevance is not verification"],"next_cursor":next_cursor}
 
 class PostgresMemoryRetrieval:
     def retrieve(self, session, actor_id, event_id, **filters):

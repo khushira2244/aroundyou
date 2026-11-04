@@ -1,0 +1,12 @@
+import {it,expect} from 'vitest';
+import {resourceRows} from '../src/features/event-setup/resourceRows';
+import type {SetupState} from '../src/services/publication-contracts';
+function state(kind='consumable',quantities:(number|null)[]=[20,10],overlap=false){return {resources:quantities.map((required,i)=>({id:`r${i}`,title:'Gloves',kind,unit:'pairs',required,available:5,reported_available:null})),planning:{resources:Object.fromEntries(quantities.map((_,i)=>[`r${i}`,{work_ids:[`w${i}`]}])),work:Object.fromEntries(quantities.map((_,i)=>[`w${i}`,{id:`w${i}`,resource_requirement_ids:[`r${i}`],schedule:{start_day:overlap?1:i+1,end_day:overlap?1:i+1,start_minute:540,end_minute:660}}]))}} as unknown as SetupState}
+it('sums distinct consumable demands and computes a known gap',()=>{const rows=resourceRows(state());expect(rows).toHaveLength(1);expect(rows[0]).toMatchObject({required:30,available:10,gap:20,review:false})});
+it('does not turn missing quantities into zero',()=>{expect(resourceRows(state('consumable',[20,null]))[0]).toMatchObject({required:null,gap:null})});
+it('uses peak equipment demand across timed work',()=>{expect(resourceRows(state('equipment',[8,4]))[0].required).toBe(8);expect(resourceRows(state('equipment',[8,4],true))[0].required).toBe(12)});
+it('keeps unknown stock and ambiguous reusable reports unknown',()=>{const s=state('equipment',[8,4]);s.resources[0].available=null;expect(resourceRows(s)[0].available).toBeNull();s.resources[0].reported_available=5;expect(resourceRows(s)[0].availableReview).toBe(true)});
+it('does not blindly add overlapping consumable source references',()=>{const s=state();s.planning.resources.r1.work_ids=['w0'];s.planning.work.w1.resource_requirement_ids=[];expect(resourceRows(s)[0].review).toBe(true)});
+it('keeps units separate and uses an explicit organizer report',()=>{const s=state();s.resources[1].unit='boxes';s.resources[0].reported_available=12;const rows=resourceRows(s);expect(rows).toHaveLength(2);expect(rows[0]).toMatchObject({available:12,gap:8,reported:true})});
+
+it('flags reusable resources with duplicate work or missing timing for review',()=>{const s=state('equipment');s.planning.resources.r1.work_ids=['w0'];s.planning.work.w1.resource_requirement_ids=[];expect(resourceRows(s)[0].review).toBe(true);const missing=state('equipment');delete (missing.planning.work.w0 as Partial<typeof missing.planning.work.w0>).schedule;expect(resourceRows(missing)[0].review).toBe(true)});

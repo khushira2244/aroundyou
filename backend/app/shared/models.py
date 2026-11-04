@@ -20,6 +20,7 @@ class ReviewDecision(Base):
     outcome: Mapped[str] = mapped_column(String(20), default="unknown")
     criteria: Mapped[str] = mapped_column(String(2000), default="")
     note: Mapped[str] = mapped_column(String(4000), default="")
+    reviewed_content: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 class AuditEvent(Base):

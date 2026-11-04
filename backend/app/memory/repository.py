@@ -26,6 +26,10 @@ def current_sources(session,actor_id,entry):
 
 def eligible(session,actor_id,entry):
     if entry.lifecycle!="published": return False
+    if entry.kind=='lesson':
+        from app.events.models import Event
+        event=session.get(Event,entry.event_id)
+        if not event or event.memory_data_class!='real':return False
     try: current_sources(session,actor_id,entry)
     except DomainError: return False
     return True

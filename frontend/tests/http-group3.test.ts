@@ -27,3 +27,13 @@ it('keeps sponsor membership/version and exact fulfillment linkage in HTTP comma
  await s.sponsorCommand('saveSponsorOffer',{eventId:'e',resourceId:'r',supportType:'materials',description:'Books',quantity:5,unit:'books',submit:true});expect(calls.at(-1)?.path).toBe('/v1/organizations/org/offers');
  await s.sponsorCommand('verifySponsorOfferReceipt',{eventId:'e',offerId:'o',quantity:5,reference:'delivery-note'});expect(calls.at(-1)?.body.fulfillment_id).toBe('f');
 });
+
+it('saves organizer revision requests and verifies the exact selected delivery report',async()=>{
+ const calls:{path:string;body:Record<string,unknown>}[]=[];
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit)=>{const path=new URL(url).pathname;calls.push({path,body:init.body?JSON.parse(String(init.body)):{}});if(path.endsWith('/organizer/sponsor-offers'))return response({offers:[{id:'o',resource_requirement_id:'r',unit:'books'}],fulfillments:[{id:'f1',offer_id:'o',quantity:4,verified:false},{id:'f2',offer_id:'o',quantity:4,verified:false}]});return response({saved:true},2)}));
+ const s=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=> 't',eventId:()=> 'e'});
+ await s.organizerCommand('requestSponsorRevision',{eventId:'e',offerId:'o',body:'Clarify delivery'});
+ expect(calls.at(-1)).toEqual({path:'/v1/events/e/sponsor-offers/o/revision-requests',body:{body:'Clarify delivery'}});
+ await s.sponsorCommand('verifySponsorOfferReceipt',{eventId:'e',offerId:'o',fulfillmentId:'f2',quantity:4,reference:'receipt'});
+ expect(calls.at(-1)?.body.fulfillment_id).toBe('f2');expect(calls.at(-1)?.body.unit).toBe('books');
+});
