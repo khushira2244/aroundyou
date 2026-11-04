@@ -371,6 +371,8 @@ Education, community support and environmental scenarios demonstrate human-guide
 
 ## License
 
-**A project license has not yet been added.** The owner must choose terms and add a `LICENSE` file; no open-source license is asserted here.
+AroundYou is licensed under the MIT License. Copyright (c) 2026 Khushboo Rani.
+
+See the [LICENSE](LICENSE) file for details.
 
 The pinned Qwen model's Apache-2.0 license is recorded in the [Modal verification report](docs/implementation/modal-live-verification.md). That model license does not license AroundYou, provider services, photographs or other third-party assets. Their respective terms and permissions apply.
