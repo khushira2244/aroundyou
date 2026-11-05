@@ -6,7 +6,7 @@
 
 🌐 **Live Application:** [Launch AroundYou](https://aroundyou-taupe.vercel.app/)
 
-🎬 **Demo Video:** [Watch AroundYou on YouTube](https://www.youtube.com/watch?v=FIz7WdQfMzE)
+🎬 **Demo Video:** [Watch AroundYou on YouTube](https://youtu.be/d0Or66axSfs)
 
 *AroundYou demonstrates AI-assisted event planning, community participation, resource coordination, and real-world execution workflows.*
 
