@@ -107,7 +107,7 @@ def save_report(db,actor,e,b):
         usage.append({**u.model_dump(mode='json'),'id':u.id or uid()})
     if reconciled:require_state(usage==r.content.get('resource_usage',[]),'Reconciled usage history cannot be silently edited; append a new report or record a ledger correction')
     require_state(len({u['id'] for u in usage})==len(usage),'Duplicate usage')
-    data={**r.content,'original_text':b.body,'source_type':'participant_entry','claim':b.claim,'remaining_work':b.remaining_work,'reported_percent':b.progress_percent,'resource_usage':usage,'measurements':[m.model_dump() for m in b.measurements],'evidence_ids':r.content.get('evidence_ids',[]),'review_notes':r.content.get('review_notes',[]),'review_status':'draft','saved_at':now().isoformat(),'submitted_at':None}
+    data={**r.content,'original_text':b.body,'source_type':'participant_entry','claim':b.claim,'remaining_work':b.remaining_work,'reported_percent':b.progress_percent,'resource_usage':usage,'manual_resource_usage':[u.model_dump(mode='json') for u in b.manual_resource_usage],'measurements':[m.model_dump() for m in b.measurements],'evidence_ids':r.content.get('evidence_ids',[]),'review_notes':r.content.get('review_notes',[]),'review_status':'draft','saved_at':now().isoformat(),'submitted_at':None}
     record(db,actor,e,r,'report.draft',data)
     return {'report':report_dto(db,actor,e,r)}
 

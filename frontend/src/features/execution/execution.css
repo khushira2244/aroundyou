@@ -7,3 +7,19 @@
 .execution-summary-link{display:inline-flex;margin:0;line-height:1.5}
 @media(max-width:1000px){.execution-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:420px){.execution-summary-metrics{grid-template-columns:1fr}}
+
+/* AROUNDYOU UI CHANGE: scoped compact report/evidence modal and collapsed blocker form. */
+.execution-detail .execution-instructions{margin:12px 0;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#f6fafc}
+.execution-detail .execution-instructions>summary,.execution-detail .execution-blocker-section>summary{cursor:pointer;font-weight:700;color:var(--ink);text-align:left;line-height:1.5}
+.execution-detail .execution-report-section{margin-top:18px;min-width:0}
+.execution-detail .execution-blocker-section{margin-top:20px;padding:16px;border:1px solid var(--line);border-radius:10px;background:white}
+.execution-detail .execution-blocker-section[open]>summary{margin-bottom:14px}
+.execution-detail .execution-evidence-prerequisite{padding:14px;margin:16px 0;border:1px dashed #b8cddd;border-radius:9px;background:#f5faff}
+.execution-detail .execution-evidence-prerequisite h4,.execution-detail .execution-attachments h4{margin:0 0 10px}
+.execution-detail .execution-evidence-prerequisite p{margin:0;line-height:1.5}
+.execution-detail .execution-attachments input[type=file]{max-width:100%;color:var(--ink)}
+.execution-detail .evidence-preview strong{display:block;overflow-wrap:anywhere}
+
+/* AROUNDYOU UI CHANGE: compact manual name/quantity row. */
+.execution-detail .execution-manual-usage{grid-template-columns:minmax(0,1fr) minmax(85px,120px) auto}
+.execution-manual-usage input{min-width:0;width:100%}

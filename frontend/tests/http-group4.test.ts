@@ -22,3 +22,16 @@ it('persists communications without claiming external notification or enabling G
  await s.organizerCommand('approveMeetingAction',{eventId:'e',actionId:'follow-up'});expect(bodies.at(-1)?.action).toBe('approve_action');
  await expect(s.executionCommand('activatePlanRevision',{eventId:'e'})).rejects.toThrow('not connected');
 });
+it('omits empty manual resources for older runtimes and sends entered resources without dropping them',async()=>{
+ const bodies:Record<string,unknown>[]=[];
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit)=>{
+  if(url.endsWith('/execution'))return response({reports:[],evidence:[],work:[]});
+  if(init.body)bodies.push(JSON.parse(String(init.body)));
+  return response({report:{id:'report',revision:1}},4);
+ }));
+ const s=new HttpAdapter({baseUrl:'http://localhost:8000',token:()=> 't',eventId:()=> 'e'});
+ await s.executionCommand('saveExecutionReport',{eventId:'e',workId:'w',body:'Collected litter',resourceUsage:[],manualResourceUsage:[],measurements:[]});
+ expect(bodies.at(-1)).not.toHaveProperty('manual_resource_usage');
+ await s.executionCommand('saveExecutionReport',{eventId:'e',workId:'w',body:'Collected litter',resourceUsage:[],manualResourceUsage:[{name:'Gloves',quantity:12}],measurements:[]});
+ expect(bodies.at(-1)?.manual_resource_usage).toEqual([{name:'Gloves',quantity:12}]);
+});

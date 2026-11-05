@@ -14,6 +14,10 @@ class Measurement(StrictModel):
     metric:str=Field(min_length=1,max_length=100)
     value:float=Field(ge=0,allow_inf_nan=False)
     unit:str=Field(min_length=1,max_length=60)
+# AROUNDYOU UI CHANGE: manual resource declarations are independent of inventory.
+class ManualResourceUsage(StrictModel):
+    name:str=Field(min_length=1,max_length=200)
+    quantity:Decimal=Field(gt=0,max_digits=16,decimal_places=4)
 class ReportDraft(StrictModel):
     model_config=ConfigDict(extra="forbid",str_strip_whitespace=False)
     work_id:str
@@ -24,6 +28,7 @@ class ReportDraft(StrictModel):
     progress_percent:float|None=Field(default=None,ge=0,le=100,allow_inf_nan=False)
     claim:Literal['progress','completion']='progress'
     resource_usage:list[Usage]=Field(default_factory=list,max_length=50)
+    manual_resource_usage:list[ManualResourceUsage]=Field(default_factory=list,max_length=50)
     measurements:list[Measurement]=Field(default_factory=list,max_length=30)
 class ReportCommand(StrictModel):
     report_revision:int=Field(ge=1)

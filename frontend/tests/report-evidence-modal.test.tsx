@@ -1,0 +1,41 @@
+import {it,expect,vi} from 'vitest';
+import {render,screen,fireEvent} from '@testing-library/react';
+import {WorkExecutionDetail} from '../src/features/execution/WorkExecutionDetail';
+import {PrivateEvidence} from '../src/features/execution/EvidenceAttachments';
+import type {ExecutionState} from '../src/services/execution-contracts';
+const mock=vi.hoisted(()=>({act:vi.fn(),state:{storage_mode:'private_backend',stages:[{id:'stage',title:'Cleanup'}],work:[{id:'work',title:'Collect litter',stage_id:'stage',execution_status:'blocked',can_report:true,can_review:false,scope:'Collect exposed waste',outcome:'No exposed litter',conditions:[],exclusion_constraints:[],evidence_requirements:[],resource_requirement_ids:[]}],reports:[],evidence:[],resources:[]} as unknown as ExecutionState}));
+vi.mock('../src/features/execution/useExecution',()=>({useExecution:()=>({state:mock.state,problem:'',busy:false,act:mock.act})}));
+it('opens report controls by default, collapses blocker and instructions, and explains draft evidence prerequisite',()=>{
+ render(<WorkExecutionDetail eventId="event" workId="work"/>);
+ expect(screen.getByRole('heading',{name:'Work Report & Evidence'})).toBeVisible();
+ expect(screen.getByLabelText('Original written report')).toBeVisible();
+ expect(screen.getByLabelText('Remaining work')).toBeVisible();
+ expect(screen.getByRole('button',{name:'Save Report Draft'})).toBeVisible();
+ expect(screen.getByText('Photos, Videos & Voice Evidence')).toBeVisible();
+ const blocker=screen.getByText('Report a Work Blocker').closest('details');
+ expect(blocker).not.toHaveAttribute('open');
+ expect(screen.getByText('Instructions & Completion Criteria').closest('details')).not.toHaveAttribute('open');
+ fireEvent.click(screen.getByText('Report a Work Blocker'));
+ expect(blocker).toHaveAttribute('open');
+ expect(screen.getByRole('button',{name:'Submit Work Blocker'})).toBeDisabled();
+ expect(screen.getByRole('button',{name:'Start Assigned Work'})).toBeDisabled();
+ expect(mock.act).not.toHaveBeenCalled();
+});
+it('shows original upload metadata and analysis prerequisite without triggering inference',()=>{
+ render(<PrivateEvidence evidence={{id:'asset',report_id:'report',name:'cleanup.png',kind:'image',mime:'image/png',size:123,status:'pending_inspection',verification:'Not verified',analysis_status:'provider_unavailable',last_modified:0,media_reference:'private',storage:'private_backend'}} act={mock.act as never} canReview={false} busy={false}/>);
+ expect(screen.getByText('cleanup.png')).toBeVisible();
+ expect(screen.getByText(/Uploaded — original saved/)).toBeVisible();
+ expect(screen.getByText(/Upload alone does not run AI/)).toBeVisible();
+ expect(screen.getByRole('button',{name:'Download private original'})).toBeVisible();
+ expect(screen.queryByRole('button',{name:'Analyze Evidence'})).toBeNull();
+ expect(mock.act).not.toHaveBeenCalled();
+});
+it('saves manually entered resource names and quantities without selecting planned resources',()=>{
+ render(<WorkExecutionDetail eventId="event" workId="work"/>);
+ fireEvent.click(screen.getByRole('button',{name:'Add Resource'}));
+ fireEvent.change(screen.getByLabelText('Resource name 1'),{target:{value:'Gloves'}});
+ fireEvent.change(screen.getByLabelText('Required quantity 1'),{target:{value:'12'}});
+ expect(screen.queryByRole('combobox',{name:'Resource 1'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Save Report Draft'}));
+ expect(mock.act).toHaveBeenCalledWith('saveExecutionReport',expect.objectContaining({manualResourceUsage:[{name:'Gloves',quantity:12}],resourceUsage:[]}));
+});
