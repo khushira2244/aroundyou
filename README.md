@@ -1,5 +1,7 @@
 # AroundYou
 
+<img width="945" height="479" alt="image" src="https://github.com/user-attachments/assets/e0d11adb-65ee-4aea-b7a2-7bd1ebc2f596" />
+
 ### From an Idea to a Community-Powered Event
 
 **AI-assisted community planning, participation, governance and real-world execution — with people in control.**
@@ -19,6 +21,8 @@ AroundYou brings these responsibilities into one connected experience. Specializ
 **Idea → Planning → Community Support → Execution → Recovery → Reviewed Outcomes**
 
 ## Product capabilities
+<img width="958" height="476" alt="image" src="https://github.com/user-attachments/assets/e154acda-588d-4bd1-aee1-bfb13d5f251e" />
+
 
 | Capability | Current implementation |
 | --- | --- |
@@ -319,9 +323,8 @@ Replay data is fictional. Model detections, attendance, commitments and verified
 | --- | --- |
 | Live frontend URL | **TODO — deployment not completed** |
 | Backend / API deployment URL | **TODO — deployment not completed** |
-| Demo video URL | **TODO — add final recording** |
-| Product screenshots | **TODO — add reviewed, privacy-safe images** |
-| Production architecture/deployment details | **TODO — document after infrastructure is selected and deployed** |
+| Demo video URL | https://www.youtube.com/watch?v=FIz7WdQfMzE|
+
 
 Suggested recording: create an event → review understanding/governance → edit Gantt and Work Design → confirm workforce → publish → participant application and exact offer acceptance → work report/blocker → impact investigation → recovery review → participant reconfirmation. Demonstrate only states and provider results actually reached.
 
