@@ -2,6 +2,14 @@
 
 <img width="945" height="479" alt="image" src="https://github.com/user-attachments/assets/e0d11adb-65ee-4aea-b7a2-7bd1ebc2f596" />
 
+## Live Demo & Video
+
+🌐 **Live Application:** [Launch AroundYou](https://aroundyou-taupe.vercel.app/)
+
+🎬 **Demo Video:** [Watch AroundYou on YouTube](https://www.youtube.com/watch?v=FIz7WdQfMzE)
+
+*AroundYou demonstrates AI-assisted event planning, community participation, resource coordination, and real-world execution workflows.*
+
 ### From an Idea to a Community-Powered Event
 
 **AI-assisted community planning, participation, governance and real-world execution — with people in control.**
@@ -317,13 +325,6 @@ npm run validate
 
 Replay data is fictional. Model detections, attendance, commitments and verified outcomes must not be inferred from a fixture or account's existence.
 
-## Demo and screenshots
-
-| Deliverable | Status |
-| --- | --- |
-| Live frontend URL | **TODO — deployment not completed** |
-| Backend / API deployment URL | **TODO — deployment not completed** |
-| Demo video URL | https://www.youtube.com/watch?v=FIz7WdQfMzE|
 
 
 Suggested recording: create an event → review understanding/governance → edit Gantt and Work Design → confirm workforce → publish → participant application and exact offer acceptance → work report/blocker → impact investigation → recovery review → participant reconfirmation. Demonstrate only states and provider results actually reached.
